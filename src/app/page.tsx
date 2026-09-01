@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { logout } from "@/app/actions/auth";
 
 type NavItem = {
   label: string;
@@ -216,6 +217,14 @@ export default function Home() {
                 </Link>
               );
             })}
+            <form action={logout}>
+              <button
+                type="submit"
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-wheat-cream/60 transition-colors hover:bg-forest-floor hover:text-wheat-cream focus-visible:outline-citron-beam"
+              >
+                Sign out
+              </button>
+            </form>
           </nav>
 
           {/* Mobile menu toggle */}
@@ -254,6 +263,14 @@ export default function Home() {
                 </Link>
               );
             })}
+            <form action={logout}>
+              <button
+                type="submit"
+                className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-base font-medium text-wheat-cream/60 transition-colors hover:bg-forest-floor hover:text-wheat-cream"
+              >
+                Sign out
+              </button>
+            </form>
           </nav>
         )}
       </header>
