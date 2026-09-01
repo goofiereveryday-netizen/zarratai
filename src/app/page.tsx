@@ -54,7 +54,7 @@ export default async function Home() {
         {/* Assistant CTA */}
         <section className="mb-10">
           <Link
-            href="#assistant"
+            href="/assistant"
             className="group flex w-full items-center justify-center gap-3 rounded-xl bg-harvest-copper px-6 py-5 text-lg font-semibold text-wheat-cream shadow-sm transition-colors hover:bg-harvest-copper/90 focus-visible:outline-citron-beam md:max-w-md"
           >
             <ChatIcon />
