@@ -1,69 +1,359 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+
+type NavItem = {
+  label: string;
+  href: string;
+  primary?: boolean;
+};
+
+const navItems: NavItem[] = [
+  { label: "Assistant", href: "#assistant", primary: true },
+  { label: "My Farms", href: "#my-farms" },
+  { label: "Farm History", href: "#farm-history" },
+  { label: "Farm Weather", href: "#farm-weather" },
+  { label: "Settings", href: "#settings" },
+];
+
+function MenuIcon() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="6" y1="18" x2="18" y2="6" />
+    </svg>
+  );
+}
+
+function LeafIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11 20A7 7 0 0 1 9.8 6.9C15.5 4.9 17 3.5 19 2c1 2 2 4.5 2 8 0 5.5-4.8 10-10 10Z" />
+      <path d="M2 21c0-3 1.9-5.5 4.5-6.5" />
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function FarmIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 21h18" />
+      <path d="M9 8h6" />
+      <path d="M12 8v13" />
+      <path d="M5 21V10l7-5 7 5v11" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+function WeatherIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  );
+}
+
+const navIcons: Record<string, () => React.JSX.Element> = {
+  Assistant: ChatIcon,
+  "My Farms": FarmIcon,
+  "Farm History": HistoryIcon,
+  "Farm Weather": WeatherIcon,
+  Settings: SettingsIcon,
+};
 
 export default function Home() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      {/* Header */}
+      <header className="sticky top-0 z-30 bg-deep-moss text-wheat-cream">
+        <div className="flex items-center justify-between px-4 py-3 md:px-6">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-lg font-semibold tracking-tight focus-visible:outline-citron-beam"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-olive-branch">
+              <LeafIcon />
+            </span>
+            ZarratAI
+          </Link>
+
+          {/* Desktop nav */}
+          <nav
+            className="hidden md:flex items-center gap-1"
+            aria-label="Primary navigation"
+          >
+            {navItems.map((item) => {
+              const Icon = navIcons[item.label];
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-forest-floor focus-visible:outline-citron-beam ${
+                    item.primary
+                      ? "bg-harvest-copper text-wheat-cream hover:bg-harvest-copper/90"
+                      : "text-wheat-cream/80 hover:text-wheat-cream"
+                  }`}
+                >
+                  {Icon && <Icon />}
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Mobile menu toggle */}
+          <button
+            type="button"
+            className="md:hidden flex h-10 w-10 items-center justify-center rounded-md hover:bg-forest-floor transition-colors"
+            onClick={() => setMenuOpen(!menuOpen)}
+            aria-expanded={menuOpen}
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+          >
+            {menuOpen ? <CloseIcon /> : <MenuIcon />}
+          </button>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        {/* Mobile dropdown nav */}
+        {menuOpen && (
+          <nav
+            className="md:hidden border-t border-forest-floor px-4 pb-4 pt-2"
+            aria-label="Primary navigation"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            {navItems.map((item) => {
+              const Icon = navIcons[item.label];
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className={`flex items-center gap-3 rounded-md px-3 py-3 text-base font-medium transition-colors hover:bg-forest-floor ${
+                    item.primary
+                      ? "bg-harvest-copper text-wheat-cream mt-1 mb-2"
+                      : "text-wheat-cream/80 hover:text-wheat-cream"
+                  }`}
+                >
+                  {Icon && <Icon />}
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        )}
+      </header>
+
+      {/* Main content */}
+      <main className="flex-1 px-4 py-6 md:px-6 md:py-8">
+        <div className="mx-auto w-full max-w-3xl">
+          {/* Selected farm placeholder */}
+          <section
+            className="mb-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3"
+            aria-label="Selected farm"
           >
-            Documentation
-          </a>
+            <div className="flex items-center gap-2 text-sm text-forest-floor">
+              <FarmIcon />
+              <span className="font-medium">Farm:</span>
+              <span className="text-deep-moss/60">No farm selected</span>
+              <Link
+                href="#my-farms"
+                className="ml-auto text-sm font-medium text-olive-branch underline-offset-2 hover:underline focus-visible:outline-olive-branch"
+              >
+                Select farm
+              </Link>
+            </div>
+          </section>
+
+          {/* Primary action: Ask ZarratAI */}
+          <section className="mb-8 text-center md:text-left">
+            <h1 className="text-2xl font-bold tracking-tight text-deep-moss md:text-3xl">
+              Ask ZarratAI
+            </h1>
+            <p className="mt-2 text-base text-forest-floor/80 leading-relaxed max-w-lg">
+              Describe the problem. Know what to do next.
+            </p>
+          </section>
+
+          {/* Assistant CTA */}
+          <section className="mb-10">
+            <Link
+              href="#assistant"
+              className="group flex w-full items-center justify-center gap-3 rounded-xl bg-harvest-copper px-6 py-5 text-lg font-semibold text-wheat-cream shadow-sm transition-colors hover:bg-harvest-copper/90 focus-visible:outline-citron-beam md:max-w-md"
+            >
+              <ChatIcon />
+              Start a conversation
+            </Link>
+          </section>
+
+          {/* Quick info */}
+          <section>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-forest-floor/60">
+              What you can ask about
+            </h2>
+            <ul className="space-y-2 text-base text-forest-floor">
+              <li className="flex items-start gap-3 rounded-lg border border-forest-floor/10 bg-wheat-cream-light px-4 py-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-olive-branch text-wheat-cream text-xs font-bold">
+                  1
+                </span>
+                <span>Crop diseases and pest problems</span>
+              </li>
+              <li className="flex items-start gap-3 rounded-lg border border-forest-floor/10 bg-wheat-cream-light px-4 py-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-olive-branch text-wheat-cream text-xs font-bold">
+                  2
+                </span>
+                <span>Pesticide and treatment guidance</span>
+              </li>
+              <li className="flex items-start gap-3 rounded-lg border border-forest-floor/10 bg-wheat-cream-light px-4 py-3">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-olive-branch text-wheat-cream text-xs font-bold">
+                  3
+                </span>
+                <span>Farm management advice</span>
+              </li>
+            </ul>
+          </section>
         </div>
       </main>
-    </div>
+
+      {/* Mobile bottom nav bar */}
+      <nav
+        className="md:hidden sticky bottom-0 z-20 border-t border-forest-floor/15 bg-wheat-cream-light"
+        aria-label="Mobile navigation"
+      >
+        <div className="flex items-stretch justify-around">
+          {navItems.map((item) => {
+            const Icon = navIcons[item.label];
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors ${
+                  item.primary
+                    ? "text-harvest-copper"
+                    : "text-forest-floor/60 hover:text-forest-floor"
+                }`}
+              >
+                {Icon && <Icon />}
+                <span className="truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+    </>
   );
 }
