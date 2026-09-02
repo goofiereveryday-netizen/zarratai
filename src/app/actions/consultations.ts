@@ -5,7 +5,12 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSelectedFarm } from "@/lib/farms";
 import {
+  ASSISTANT_REPLY_FAILED,
+  generateAssistantReply,
+} from "@/lib/ai/assistant";
+import {
   deriveConsultationTitle,
+  getConsultationMessages,
   type Consultation,
   type ConsultationMessage,
 } from "@/lib/consultations";
@@ -19,6 +24,13 @@ export type SendMessageResult = {
   message?: ConsultationMessage;
   /** The consultation the message was saved to. */
   consultation?: Consultation;
+  /** The persisted assistant reply, when one could be generated and saved. */
+  assistantMessage?: ConsultationMessage;
+  /**
+   * Non-technical notice when the assistant reply failed. The user message
+   * above was still saved, so the client must not roll it back.
+   */
+  assistantError?: string;
 };
 
 export type NewConsultationResult = {
@@ -44,12 +56,14 @@ async function getAuthContext() {
 }
 
 /**
- * Saves a user message to the active consultation for the selected farm.
- * Creates the consultation when this is the first message, deriving its
- * title from the message with deterministic truncation.
+ * Saves a user message to the active consultation for the selected farm,
+ * then generates the assistant reply for it.
  *
- * The active consultation is always re-derived from the database — the
- * database, not the client, is the source of truth.
+ * Order matters: the user message is persisted first, so it survives even
+ * when the Gemini call fails. The reply — when generated — is saved as an
+ * assistant message in the same consultation. The active consultation is
+ * always re-derived from the database — the database, not the client, is
+ * the source of truth.
  */
 export async function sendMessage(content: string): Promise<SendMessageResult> {
   const { supabase, userId } = await getAuthContext();
@@ -128,7 +142,59 @@ export async function sendMessage(content: string): Promise<SendMessageResult> {
 
   revalidatePath("/assistant");
 
-  return { message: message as ConsultationMessage, consultation };
+  // The user message is safely stored — generate the reply after it, with
+  // the recent conversation (including the message just saved) and the
+  // selected farm as context.
+  const history = await getConsultationMessages(consultation.id);
+  const reply = await generateAssistantReply({ farm, history });
+
+  if ("error" in reply) {
+    // Keep the saved user message; only the reply is missing.
+    return {
+      message: message as ConsultationMessage,
+      consultation,
+      assistantError: reply.error,
+    };
+  }
+
+  const { data: assistantMessage, error: assistantInsertError } = await supabase
+    .from("messages")
+    .insert({
+      id: crypto.randomUUID(),
+      consultation_id: consultation.id,
+      user_id: userId,
+      role: "assistant",
+      input_type: "text",
+      content: reply.text,
+      created_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
+
+  if (assistantInsertError) {
+    console.error(
+      "Failed to save assistant message:",
+      assistantInsertError.message
+    );
+    return {
+      message: message as ConsultationMessage,
+      consultation,
+      assistantError: ASSISTANT_REPLY_FAILED,
+    };
+  }
+
+  // Keep the consultation's updated_at in step with its latest message.
+  // Non-fatal: ordering relies on created_at, so a failure here is harmless.
+  await supabase
+    .from("consultations")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", consultation.id);
+
+  return {
+    message: message as ConsultationMessage,
+    consultation,
+    assistantMessage: assistantMessage as ConsultationMessage,
+  };
 }
 
 /**

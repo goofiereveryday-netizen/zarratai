@@ -9,7 +9,6 @@ import {
   type KeyboardEvent,
 } from "react";
 import { PlusIcon, SendIcon } from "@/components/icons";
-import { AssistantReplyPlaceholder } from "@/components/assistant-reply-placeholder";
 import {
   sendMessage,
   startNewConsultation,
@@ -94,6 +93,16 @@ export function ConsultationChat({
       if (result.consultation) {
         setConsultation(result.consultation);
       }
+
+      const assistantMessage = result.assistantMessage;
+      if (assistantMessage) {
+        // The saved assistant reply — render it in the conversation.
+        setMessages((prev) => [...prev, assistantMessage]);
+      } else if (result.assistantError) {
+        // The user's message is saved in Supabase; only the reply failed.
+        // Keep the message on screen and show a non-technical notice.
+        setError(result.assistantError);
+      }
     });
   }
 
@@ -165,7 +174,7 @@ export function ConsultationChat({
               changed. Your messages are saved to this consultation.
             </p>
             <p className="mt-3 text-xs text-forest-floor/50">
-              Development state: AI replies are not connected yet.
+              The assistant replies in the language you write in.
             </p>
           </div>
         ) : (
@@ -177,9 +186,9 @@ export function ConsultationChat({
                 pending={message.id === optimisticId}
               />
             ))}
-            {/* Temporary development state — the AI orchestration layer
-                replaces this with real assistant replies. */}
-            <AssistantReplyPlaceholder />
+            {/* Status while the server generates and saves the assistant
+                reply — an honest indicator, never a fake reply. */}
+            {sending && <AssistantReplyPending />}
           </>
         )}
       </div>
@@ -245,6 +254,22 @@ function MessageBubble({
         } ${pending ? "opacity-60" : ""}`}
       >
         {message.content ?? ""}
+      </div>
+    </div>
+  );
+}
+
+/** Shown while a sent message is waiting for its assistant reply. */
+function AssistantReplyPending() {
+  return (
+    <div className="flex justify-start">
+      <div
+        className="animate-pulse rounded-2xl rounded-tl-sm border border-forest-floor/10 bg-wheat-cream-light px-4 py-2.5"
+        role="status"
+      >
+        <p className="text-sm text-forest-floor/60">
+          Assistant is preparing a reply…
+        </p>
       </div>
     </div>
   );
