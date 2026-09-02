@@ -44,6 +44,30 @@ export {
 
 export type { PesticideVerificationResult } from "./pesticide-verification";
 
+export {
+  TRAINING_MANUAL_ENTRIES,
+  TRAINING_MANUAL_SOURCE_DOCUMENT,
+  TRAINING_MANUAL_SOURCE_TYPE,
+  TRAINING_MANUAL_SOURCE_TIER,
+  TRAINING_MANUAL_VERIFICATION_STATUS,
+  buildManualProvenance,
+  findManualEntriesByCrop,
+  findManualEntriesByProblem,
+  getManualEntryById,
+  listManualCrops,
+  searchManualEntries,
+  validateTrainingManualDataset,
+} from "./training-manual";
+
+export type {
+  BuildManualProvenanceInput,
+  ManualDatasetIssue,
+  ManualDatasetValidation,
+  TrainingManualEntry,
+  TrainingManualPesticideDetails,
+  TrainingManualProvenance,
+} from "./training-manual";
+
 // ---------------------------------------------------------------------------
 // Test fixtures
 //
