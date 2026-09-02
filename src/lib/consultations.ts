@@ -99,3 +99,46 @@ export async function getConsultationMessages(
 
   return (data ?? []) as ConsultationMessage[];
 }
+
+/**
+ * Returns all consultations for the signed-in user, newest first.
+ * RLS scopes the query so only the user's own rows are returned.
+ */
+export async function getUserConsultations(): Promise<Consultation[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("consultations")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to load user consultations:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as Consultation[];
+}
+
+/**
+ * Returns a single consultation by id. RLS ensures the signed-in user
+ * can only access their own consultations.
+ */
+export async function getConsultationById(
+  id: string
+): Promise<Consultation | null> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("consultations")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to load consultation:", error.message);
+    return null;
+  }
+
+  return (data as Consultation) ?? null;
+}

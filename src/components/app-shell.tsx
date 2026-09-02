@@ -23,7 +23,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: "Assistant", href: "/assistant", primary: true },
   { label: "My Farms", href: "/farms" },
-  { label: "Farm History", href: "#farm-history" },
+  { label: "Farm History", href: "/history" },
   { label: "Farm Weather", href: "#farm-weather" },
   { label: "Settings", href: "#settings" },
 ];

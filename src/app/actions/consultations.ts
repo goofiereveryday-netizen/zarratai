@@ -141,6 +141,7 @@ export async function sendMessage(content: string): Promise<SendMessageResult> {
   }
 
   revalidatePath("/assistant");
+  revalidatePath("/history");
 
   // The user message is safely stored — generate the reply after it, with
   // the recent conversation (including the message just saved) and the
@@ -241,5 +242,6 @@ export async function startNewConsultation(): Promise<NewConsultationResult> {
   }
 
   revalidatePath("/assistant");
+  revalidatePath("/history");
   return {};
 }
