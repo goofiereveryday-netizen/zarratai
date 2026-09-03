@@ -73,6 +73,10 @@ export function ConsultationChat({
   const speechFinalRef = useRef("");
   const speechLangIndexRef = useRef(0);
   const speechRetryRef = useRef(false);
+  // Whether the farmer still intends to listen — a ref (not state) so
+  // recognition callbacks always read the current intent across the
+  // session restarts browsers force on long listening periods.
+  const speechActiveRef = useRef(false);
 
   // Keep the latest message visible: jump straight to the bottom on load,
   // then smooth-scroll as messages arrive.
@@ -88,6 +92,7 @@ export function ConsultationChat({
   // End any live recognition when the chat unmounts.
   useEffect(() => {
     return () => {
+      speechActiveRef.current = false;
       const recognition = recognitionRef.current;
       recognitionRef.current = null;
       try {
@@ -219,33 +224,58 @@ export function ConsultationChat({
 
   /**
    * Starts voice recognition and streams the transcript into the
-   * composer. The farmer reviews and edits the text before sending —
-   * nothing is sent automatically.
+   * composer. Recognition keeps running through normal speaking pauses;
+   * the mic stops only when the farmer taps it again, presses Send, or
+   * a fatal error occurs. When the browser ends a session early, it
+   * restarts without losing or duplicating the transcript. The farmer
+   * reviews and edits the text before sending — nothing is sent
+   * automatically.
    */
-  function startListening() {
+  function startListening(restart = false) {
     const SpeechRecognitionCtor = getSpeechRecognition();
     if (!SpeechRecognitionCtor) {
       setSpeechNotice(SPEECH_UNSUPPORTED_MESSAGE);
       return;
     }
 
-    // Recognized speech appends to whatever the farmer already typed.
-    speechBaseRef.current = input
-      ? input.endsWith(" ")
-        ? input
-        : `${input} `
-      : "";
+    if (restart) {
+      // Continuation after the browser ended a session: fold what has
+      // been recognized so far into the base text so the restarted
+      // session appends instead of duplicating earlier words. Uses the
+      // refs (always current), never the possibly-stale input closure.
+      const recognized = speechFinalRef.current;
+      if (recognized) {
+        speechBaseRef.current = speechBaseRef.current
+          ? `${speechBaseRef.current}${
+              speechBaseRef.current.endsWith(" ") ? "" : " "
+            }${recognized}`
+          : recognized;
+      }
+    } else {
+      // Fresh start: recognized speech appends to whatever the farmer
+      // already typed.
+      speechBaseRef.current = input
+        ? input.endsWith(" ")
+          ? input
+          : `${input} `
+        : "";
+    }
     speechFinalRef.current = "";
+    speechActiveRef.current = true;
 
     const recognition = new SpeechRecognitionCtor();
     recognitionRef.current = recognition;
     // Urdu first for the Punjab audience; browsers without the Urdu
     // locale fall back to English (see onerror below).
     recognition.lang = SPEECH_LANGUAGES[speechLangIndexRef.current];
-    recognition.continuous = false; // one utterance per tap — tap again to add more
+    // Keep listening through normal pauses. Browsers that still end
+    // the session early are handled by the restart in onend below.
+    recognition.continuous = true;
     recognition.interimResults = true; // live feedback in the composer
 
     recognition.onresult = (event) => {
+      // Skip results from a session the farmer already stopped/replaced.
+      if (recognitionRef.current !== recognition) return;
       let finalChunk = "";
       let interimChunk = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -275,11 +305,19 @@ export function ConsultationChat({
         speechRetryRef.current = true;
         return;
       }
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      // Fatal errors stop the mic entirely; no-speech and aborted stay
+      // silent so the restart in onend keeps the session alive.
+      if (
+        event.error === "not-allowed" ||
+        event.error === "service-not-allowed"
+      ) {
+        speechActiveRef.current = false;
         setSpeechNotice("Microphone permission was denied.");
       } else if (event.error === "audio-capture") {
+        speechActiveRef.current = false;
         setSpeechNotice("No microphone was found on this device.");
       } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        speechActiveRef.current = false;
         setSpeechNotice("Voice input stopped unexpectedly. Please try again.");
       }
     };
@@ -289,8 +327,23 @@ export function ConsultationChat({
       if (recognitionRef.current !== recognition) return;
       recognitionRef.current = null;
       if (speechRetryRef.current) {
+        // Urdu is unavailable on this browser — the restart below
+        // switches to English.
         speechRetryRef.current = false;
-        startListening();
+        speechLangIndexRef.current += 1;
+      }
+      if (speechActiveRef.current) {
+        // The browser ended the session (time cap or silence) while the
+        // farmer still intends to listen — restart shortly, giving the
+        // browser a moment to release the microphone. A manual stop
+        // during the gap wins because it clears speechActiveRef.
+        window.setTimeout(() => {
+          if (!speechActiveRef.current) {
+            setListening(false);
+            return;
+          }
+          startListening(true);
+        }, 250);
         return;
       }
       setListening(false);
@@ -302,15 +355,17 @@ export function ConsultationChat({
       setListening(true);
     } catch {
       // start() throws when another session is still winding down.
+      speechActiveRef.current = false;
       setListening(false);
     }
   }
 
   /** Stops the active recognition; the transcript typed so far is kept. */
   function stopListening() {
+    speechActiveRef.current = false;
+    speechRetryRef.current = false;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
-    speechRetryRef.current = false;
     try {
       recognition?.stop();
     } catch {
