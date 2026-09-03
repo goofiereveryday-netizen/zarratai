@@ -56,8 +56,6 @@ export function ConsultationChat({
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const firstRenderRef = useRef(true);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // Keep the latest message visible: jump straight to the bottom on load,
   // then smooth-scroll as messages arrive.
@@ -323,26 +321,26 @@ export function ConsultationChat({
         )}
 
         <div className="flex items-end gap-2 rounded-2xl border border-forest-floor/20 bg-white p-2 shadow-sm">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={sending}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-forest-floor/60 transition-colors hover:bg-forest-floor/5 hover:text-forest-floor disabled:opacity-40 focus-visible:outline-citron-beam"
-            aria-label="Upload a photo"
-            title="Upload a photo"
+          <label
+            htmlFor="crop-gallery-input"
+            className={`flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-forest-floor/60 transition-colors hover:bg-forest-floor/5 hover:text-forest-floor focus-within:outline-citron-beam ${
+              sending ? "pointer-events-none opacity-40" : ""
+            }`}
+            aria-label="Choose crop photo"
+            title="Choose crop photo"
           >
             <PhotoIcon />
-          </button>
-          <button
-            type="button"
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={sending}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-forest-floor/60 transition-colors hover:bg-forest-floor/5 hover:text-forest-floor disabled:opacity-40 focus-visible:outline-citron-beam"
-            aria-label="Take a photo"
-            title="Take a photo"
+          </label>
+          <label
+            htmlFor="crop-camera-input"
+            className={`flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-forest-floor/60 transition-colors hover:bg-forest-floor/5 hover:text-forest-floor focus-within:outline-citron-beam ${
+              sending ? "pointer-events-none opacity-40" : ""
+            }`}
+            aria-label="Take crop photo"
+            title="Take crop photo"
           >
             <CameraIcon />
-          </button>
+          </label>
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
@@ -362,25 +360,24 @@ export function ConsultationChat({
           </button>
         </div>
 
-        {/* Hidden pickers — triggered by the labelled buttons above. The
-            camera input opens the rear camera on supporting devices. */}
+        {/* Native label/input activation — visually hidden (sr-only) so
+            mobile browsers can still activate them through the labels above.
+            display:none (Tailwind "hidden") prevents mobile activation. */}
         <input
-          ref={fileInputRef}
+          id="crop-gallery-input"
           type="file"
           accept="image/*"
-          className="hidden"
+          className="pointer-events-none sr-only"
           onChange={handleFileSelected}
-          aria-hidden="true"
           tabIndex={-1}
         />
         <input
-          ref={cameraInputRef}
+          id="crop-camera-input"
           type="file"
           accept="image/*"
           capture="environment"
-          className="hidden"
+          className="pointer-events-none sr-only"
           onChange={handleFileSelected}
-          aria-hidden="true"
           tabIndex={-1}
         />
       </form>

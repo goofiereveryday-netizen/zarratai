@@ -25,7 +25,7 @@ const navItems: NavItem[] = [
   { label: "My Farms", href: "/farms" },
   { label: "Farm History", href: "/history" },
   { label: "Farm Weather", href: "/weather" },
-  { label: "Settings", href: "#settings" },
+  { label: "Settings", href: "/settings" },
 ];
 
 const navIcons: Record<string, () => React.JSX.Element> = {
