@@ -28,12 +28,16 @@ export default async function HistoryPage() {
   // Build a farm-id → farm-name lookup so each history row can show
   // the associated farm without an extra query per row.
   const farmMap = new Map(farms.map((f) => [f.id, f.name]));
+  const userName =
+    typeof user.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
 
   return (
-    <AppShell>
+    <AppShell userName={userName}>
       <div className="mx-auto w-full max-w-3xl">
         <h1 className="text-2xl font-bold tracking-tight text-deep-moss">
-          Farm History
+          History
         </h1>
         <p className="mt-1 text-sm text-forest-floor/70">
           Your past consultations and their outcomes.
@@ -97,7 +101,7 @@ function EmptyHistory() {
       </h2>
       <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-forest-floor/70">
         Your consultations will appear here once you start talking to the
-        assistant. Every conversation is saved against the farm it is about.
+        assistant. Every conversation is saved against the crop it is about.
       </p>
       <Link
         href="/assistant"

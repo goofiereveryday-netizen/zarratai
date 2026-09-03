@@ -55,6 +55,25 @@ export default function SignupPage() {
         <form action={formAction} className="space-y-4">
           <div>
             <label
+              htmlFor="name"
+              className="mb-1 block text-sm font-medium text-deep-moss"
+            >
+              Your name
+            </label>
+            <input
+              id="name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              placeholder="Ahmad Khan"
+              required
+              maxLength={100}
+              className="w-full rounded-lg border border-forest-floor/20 bg-white px-4 py-3 text-base text-deep-moss placeholder-forest-floor/30 transition-colors focus:border-olive-branch focus:outline-none focus:ring-2 focus:ring-olive-branch/20"
+            />
+          </div>
+
+          <div>
+            <label
               htmlFor="phone"
               className="mb-1 block text-sm font-medium text-deep-moss"
             >

@@ -12,8 +12,17 @@ export async function signup(
   _state: AuthFormState,
   formData: FormData
 ): Promise<AuthFormState> {
+  const name = String(formData.get("name") ?? "").trim();
   const phone = String(formData.get("phone") ?? "");
   const password = String(formData.get("password") ?? "");
+
+  // Validate name
+  if (!name) {
+    return { error: "Please enter your name." };
+  }
+  if (name.length > 100) {
+    return { error: "Name must be 100 characters or fewer." };
+  }
 
   // Validate password length
   if (password.length < 8) {
@@ -38,6 +47,7 @@ export async function signup(
     options: {
       data: {
         phone_number: normalized,
+        full_name: name,
       },
     },
   });
@@ -94,4 +104,35 @@ export async function logout(): Promise<never> {
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");
+}
+
+export type ProfileFormState = {
+  error?: string;
+  success?: string;
+};
+
+export async function updateProfileName(
+  _state: ProfileFormState,
+  formData: FormData
+): Promise<ProfileFormState> {
+  const name = String(formData.get("name") ?? "").trim();
+
+  if (!name) {
+    return { error: "Name cannot be empty." };
+  }
+  if (name.length > 100) {
+    return { error: "Name must be 100 characters or fewer." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.updateUser({
+    data: { full_name: name },
+  });
+
+  if (error) {
+    console.error("Failed to update name:", error.message);
+    return { error: "Could not update name. Please try again." };
+  }
+
+  return { success: "Name updated." };
 }

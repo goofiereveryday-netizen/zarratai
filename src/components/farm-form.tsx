@@ -36,14 +36,14 @@ export function FarmForm({ action, farm, submitLabel }: FarmFormProps) {
     <form action={formAction} className="space-y-4">
       <div>
         <label htmlFor="farm-name" className={labelClass}>
-          Farm name
+          Crop name
         </label>
         <input
           id="farm-name"
           name="name"
           type="text"
           autoComplete="off"
-          placeholder="e.g. Home farm"
+          placeholder="e.g. North field wheat"
           required
           defaultValue={farm?.name}
           className={inputClass}
@@ -178,7 +178,7 @@ export function FarmForm({ action, farm, submitLabel }: FarmFormProps) {
           id="notes"
           name="notes"
           rows={3}
-          placeholder="Anything else about this farm"
+          placeholder="Anything else about this crop"
           defaultValue={farm?.notes ?? ""}
           className={inputClass}
         />

@@ -67,7 +67,7 @@ function validateFarmForm(formData: FormData): {
   const crop = String(formData.get("crop") ?? "").trim();
   const areaRaw = String(formData.get("area") ?? "").trim();
 
-  if (!name) errors.name = "Farm name is required.";
+  if (!name) errors.name = "Crop name is required.";
   if (!district) errors.district = "District is required.";
   if (!tehsil) errors.tehsil = "Tehsil is required.";
   if (!crop) errors.crop = "Crop is required.";
@@ -138,7 +138,7 @@ export async function createFarm(
   });
 
   if (error) {
-    return { error: "Could not add the farm. Please try again." };
+    return { error: "Could not add the crop. Please try again." };
   }
 
   revalidatePath("/farms");
@@ -203,15 +203,15 @@ export async function deleteFarm(farmId: string): Promise<FarmActionResult> {
     .maybeSingle();
 
   if (fetchError) {
-    return { error: "Could not delete the farm. Please try again." };
+    return { error: "Could not delete the crop. Please try again." };
   }
   if (!farm) {
-    return { error: "Farm not found." };
+    return { error: "Crop not found." };
   }
 
   const { error } = await supabase.from("farms").delete().eq("id", farmId);
   if (error) {
-    return { error: "Could not delete the farm. Please try again." };
+    return { error: "Could not delete the crop. Please try again." };
   }
 
   // If the selected farm was deleted, keep exactly one farm selected by

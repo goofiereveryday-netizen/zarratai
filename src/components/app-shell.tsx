@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { logout } from "@/app/actions/auth";
 import {
@@ -11,6 +11,8 @@ import {
   FarmIcon,
   HistoryIcon,
   WeatherIcon,
+  HomeIcon,
+  UserIcon,
   SettingsIcon,
 } from "@/components/icons";
 
@@ -21,23 +23,33 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
+  { label: "Home", href: "/" },
   { label: "Assistant", href: "/assistant", primary: true },
-  { label: "My Farms", href: "/farms" },
-  { label: "Farm History", href: "/history" },
-  { label: "Farm Weather", href: "/weather" },
-  { label: "Settings", href: "/settings" },
+  { label: "My Crops", href: "/farms" },
+  { label: "History", href: "/history" },
+  { label: "Weather", href: "/weather" },
 ];
 
 const navIcons: Record<string, () => React.JSX.Element> = {
+  Home: HomeIcon,
   Assistant: ChatIcon,
-  "My Farms": FarmIcon,
-  "Farm History": HistoryIcon,
-  "Farm Weather": WeatherIcon,
-  Settings: SettingsIcon,
+  "My Crops": FarmIcon,
+  History: HistoryIcon,
+  Weather: WeatherIcon,
 };
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  userName,
+}: {
+  children: React.ReactNode;
+  userName?: string | null;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const displayName = userName?.trim() || "Farmer";
+  const initial = displayName.charAt(0).toUpperCase();
 
   return (
     <>
@@ -76,14 +88,64 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
-            <form action={logout}>
+
+            {/* Profile dropdown */}
+            <div className="relative ml-2" ref={profileRef}>
               <button
-                type="submit"
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-wheat-cream/60 transition-colors hover:bg-forest-floor hover:text-wheat-cream focus-visible:outline-citron-beam"
+                type="button"
+                onClick={() => setProfileOpen(!profileOpen)}
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-wheat-cream/80 transition-colors hover:bg-forest-floor hover:text-wheat-cream focus-visible:outline-citron-beam"
+                aria-expanded={profileOpen}
+                aria-label="Profile menu"
               >
-                Sign out
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-olive-branch text-xs font-bold text-wheat-cream">
+                  {initial}
+                </span>
               </button>
-            </form>
+
+              {profileOpen && (
+                <>
+                  {/* Backdrop to close dropdown */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setProfileOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full z-20 mt-1 w-48 rounded-lg border border-forest-floor/20 bg-white py-1 shadow-lg">
+                    <div className="border-b border-forest-floor/10 px-4 py-2">
+                      <p className="text-sm font-medium text-forest-floor">
+                        {displayName}
+                      </p>
+                    </div>
+                    <Link
+                      href="/profile"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-forest-floor transition-colors hover:bg-forest-floor/5"
+                    >
+                      <UserIcon size={16} />
+                      My Profile
+                    </Link>
+                    <Link
+                      href="/settings"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-forest-floor transition-colors hover:bg-forest-floor/5"
+                    >
+                      <SettingsIcon />
+                      Settings
+                    </Link>
+                    <div className="border-t border-forest-floor/10">
+                      <form action={logout}>
+                        <button
+                          type="submit"
+                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-700 transition-colors hover:bg-red-50"
+                        >
+                          Sign out
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </nav>
 
           {/* Mobile menu toggle */}
@@ -104,6 +166,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="md:hidden border-t border-forest-floor px-4 pb-4 pt-2"
             aria-label="Primary navigation"
           >
+            {/* Profile header */}
+            <Link
+              href="/profile"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-3 rounded-md px-3 py-3 mb-1 transition-colors hover:bg-forest-floor"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-olive-branch text-sm font-bold text-wheat-cream">
+                {initial}
+              </span>
+              <div>
+                <p className="text-sm font-medium text-wheat-cream">
+                  {displayName}
+                </p>
+                <p className="text-xs text-wheat-cream/60">View profile</p>
+              </div>
+            </Link>
+
             {navItems.map((item) => {
               const Icon = navIcons[item.label];
               return (
@@ -122,6 +201,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+
+            <Link
+              href="/settings"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-3 rounded-md px-3 py-3 text-base font-medium text-wheat-cream/80 transition-colors hover:bg-forest-floor hover:text-wheat-cream"
+            >
+              <SettingsIcon />
+              Settings
+            </Link>
+
             <form action={logout}>
               <button
                 type="submit"

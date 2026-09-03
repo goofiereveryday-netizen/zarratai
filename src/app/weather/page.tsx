@@ -4,23 +4,26 @@ import { AppShell } from "@/components/app-shell";
 import { FarmIcon } from "@/components/icons";
 import { WeatherCard } from "@/components/weather-card";
 import { getSelectedFarm } from "@/lib/farms";
+import { getCurrentUserProfile } from "@/lib/auth/profile";
 
 /**
- * Farm Weather page — the detailed destination behind the "Farm Weather"
- * navigation item. Shows current conditions and the short forecast for the
- * currently selected farm's location.
+ * Weather page — shows current conditions and the short forecast for the
+ * currently selected crop's location.
  */
 export default async function WeatherPage() {
-  const selectedFarm = await getSelectedFarm();
+  const [selectedFarm, profile] = await Promise.all([
+    getSelectedFarm(),
+    getCurrentUserProfile(),
+  ]);
 
   return (
-    <AppShell>
+    <AppShell userName={profile?.name}>
       <div className="mx-auto w-full max-w-3xl">
         <h1 className="text-2xl font-bold tracking-tight text-deep-moss">
-          Farm Weather
+          Weather
         </h1>
         <p className="mt-1 text-sm text-forest-floor/70">
-          Current conditions and the short forecast for your selected farm.
+          Current conditions and the short forecast for your selected crop.
         </p>
 
         {!selectedFarm ? (
@@ -29,28 +32,28 @@ export default async function WeatherPage() {
               <FarmIcon />
             </div>
             <h2 className="mt-4 text-lg font-semibold text-deep-moss">
-              No farm selected
+              No crop selected
             </h2>
             <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-forest-floor/70">
-              Select a farm to see current weather and the short forecast for
+              Select a crop to see current weather and the short forecast for
               its location.
             </p>
             <Link
               href="/farms"
               className="mt-6 inline-flex items-center gap-2 rounded-lg bg-harvest-copper px-5 py-3 text-base font-semibold text-wheat-cream transition-colors hover:bg-harvest-copper/90 focus-visible:outline-citron-beam"
             >
-              Select a farm
+              Select a crop
             </Link>
           </section>
         ) : (
           <>
             <section
               className="mt-6 mb-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3"
-              aria-label="Selected farm"
+              aria-label="Selected crop"
             >
               <div className="flex items-center gap-2 text-sm text-forest-floor">
                 <FarmIcon />
-                <span className="font-medium">Farm:</span>
+                <span className="font-medium">Crop:</span>
                 <span className="truncate font-medium text-deep-moss">
                   {selectedFarm.name}
                 </span>
@@ -58,7 +61,7 @@ export default async function WeatherPage() {
                   href="/farms"
                   className="ml-auto shrink-0 text-sm font-medium text-olive-branch underline-offset-2 hover:underline focus-visible:outline-olive-branch"
                 >
-                  Change farm
+                  Change crop
                 </Link>
               </div>
               <p className="mt-1 pl-7 text-sm text-forest-floor/70">
@@ -70,7 +73,7 @@ export default async function WeatherPage() {
               fallback={
                 <div className="mb-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3">
                   <p className="text-sm text-forest-floor/60">
-                    Loading farm weather…
+                    Loading weather…
                   </p>
                 </div>
               }

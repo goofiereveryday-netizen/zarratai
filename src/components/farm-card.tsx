@@ -107,7 +107,7 @@ export function FarmCard({ farm }: { farm: Farm }) {
         {confirmingDelete ? (
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-red-800">
-              Delete this farm?
+              Delete this crop?
             </span>
             <button
               type="button"

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { ConsultationChat } from "@/components/consultation-chat";
-import { FarmIcon, HistoryIcon, ChatIcon } from "@/components/icons";
+import { FarmIcon, ChatIcon } from "@/components/icons";
 import { createClient } from "@/lib/supabase/server";
 import { getSelectedFarm, getFarmById, type Farm } from "@/lib/farms";
 import {
@@ -30,6 +30,11 @@ export default async function AssistantPage(
     redirect("/login");
   }
 
+  const userName =
+    typeof user.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
+
   // When a specific consultation is requested (from Farm History),
   // load it and its farm directly — bypassing the selected-farm lookup.
   if (consultationId) {
@@ -38,12 +43,11 @@ export default async function AssistantPage(
       const farm = await getFarmById(consultation.farm_id);
       const messages = await getConsultationMessages(consultation.id);
       return (
-        <AppShell>
+        <AppShell userName={userName}>
           <AssistantContent
             farm={farm}
             consultation={consultation}
             messages={messages}
-            specificConsultation
           />
         </AppShell>
       );
@@ -54,7 +58,7 @@ export default async function AssistantPage(
   const selectedFarm = await getSelectedFarm();
 
   return (
-    <AppShell>
+    <AppShell userName={userName}>
       <div className="mx-auto w-full max-w-3xl">
         <h1 className="text-2xl font-bold tracking-tight text-deep-moss">
           Assistant
@@ -65,15 +69,15 @@ export default async function AssistantPage(
 
         {selectedFarm ? (
           <>
-            {/* Selected farm context — every consultation is saved
-                against this farm */}
+            {/* Selected crop context — every consultation is saved
+                against this crop */}
             <section
               className="mt-4 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3"
-              aria-label="Selected farm"
+              aria-label="Selected crop"
             >
               <div className="flex items-center gap-2 text-sm text-forest-floor">
                 <FarmIcon />
-                <span className="font-medium">Farm:</span>
+                <span className="font-medium">Crop:</span>
                 <span className="truncate font-medium text-deep-moss">
                   {selectedFarm.name}
                 </span>
@@ -81,7 +85,7 @@ export default async function AssistantPage(
                   href="/farms"
                   className="ml-auto shrink-0 text-sm font-medium text-olive-branch underline-offset-2 hover:underline focus-visible:outline-olive-branch"
                 >
-                  Change farm
+                  Change crop
                 </Link>
               </div>
               <p className="mt-1 pl-7 text-sm text-forest-floor/70">
@@ -111,12 +115,10 @@ function AssistantContent({
   farm,
   consultation,
   messages,
-  specificConsultation,
 }: {
   farm: Farm | null;
   consultation: Consultation;
   messages: ConsultationMessage[];
-  specificConsultation: boolean;
 }) {
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -138,7 +140,7 @@ function AssistantContent({
         >
           <div className="flex items-center gap-2 text-sm text-forest-floor">
             <FarmIcon />
-            <span className="font-medium">Farm:</span>
+            <span className="font-medium">Crop:</span>
             <span className="truncate font-medium text-deep-moss">
               {farm.name}
             </span>
@@ -146,7 +148,7 @@ function AssistantContent({
               href="/farms"
               className="ml-auto shrink-0 text-sm font-medium text-olive-branch underline-offset-2 hover:underline focus-visible:outline-olive-branch"
             >
-              Change farm
+              Change crop
             </Link>
           </div>
         </section>
@@ -270,17 +272,17 @@ function NoFarmSelected() {
         <FarmIcon />
       </div>
       <h2 className="mt-4 text-lg font-semibold text-deep-moss">
-        No farm selected
+        No crop selected
       </h2>
       <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-forest-floor/70">
-        Select a farm before starting a consultation. Every consultation is
-        saved against the farm it is about.
+        Select a crop before starting a consultation. Every consultation is
+        saved against the crop it is about.
       </p>
       <Link
         href="/farms"
         className="mt-6 inline-flex items-center gap-2 rounded-lg bg-harvest-copper px-5 py-3 text-base font-semibold text-wheat-cream transition-colors hover:bg-harvest-copper/90 focus-visible:outline-citron-beam"
       >
-        Go to My Farms
+        Go to My Crops
       </Link>
     </section>
   );

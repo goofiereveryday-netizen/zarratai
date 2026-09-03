@@ -3,20 +3,24 @@ import { AppShell } from "@/components/app-shell";
 import { FarmCard } from "@/components/farm-card";
 import { FarmIcon, PlusIcon } from "@/components/icons";
 import { getFarms } from "@/lib/farms";
+import { getCurrentUserProfile } from "@/lib/auth/profile";
 
 export default async function FarmsPage() {
-  const farms = await getFarms();
+  const [farms, profile] = await Promise.all([
+    getFarms(),
+    getCurrentUserProfile(),
+  ]);
 
   return (
-    <AppShell>
+    <AppShell userName={profile?.name}>
       <div className="mx-auto w-full max-w-3xl">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-deep-moss">
-              My Farms
+              My Crops
             </h1>
             <p className="mt-1 text-sm text-forest-floor/70">
-              Select the farm ZarratAI uses for advice.
+              Select the crop ZarratAI uses for advice.
             </p>
           </div>
           {farms.length > 0 && (
@@ -25,7 +29,7 @@ export default async function FarmsPage() {
               className="inline-flex items-center gap-2 rounded-lg bg-harvest-copper px-4 py-2.5 text-sm font-semibold text-wheat-cream transition-colors hover:bg-harvest-copper/90 focus-visible:outline-citron-beam"
             >
               <PlusIcon />
-              Add farm
+              Add crop
             </Link>
           )}
         </div>
@@ -36,10 +40,10 @@ export default async function FarmsPage() {
               <FarmIcon />
             </div>
             <h2 className="mt-4 text-lg font-semibold text-deep-moss">
-              No farms yet
+              No crops yet
             </h2>
             <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-forest-floor/70">
-              Add your farm details so ZarratAI can give advice for your exact
+              Add your crop details so ZarratAI can give advice for your exact
               crop and location.
             </p>
             <Link
@@ -47,7 +51,7 @@ export default async function FarmsPage() {
               className="mt-6 inline-flex items-center gap-2 rounded-lg bg-harvest-copper px-5 py-3 text-base font-semibold text-wheat-cream transition-colors hover:bg-harvest-copper/90 focus-visible:outline-citron-beam"
             >
               <PlusIcon />
-              Add your first farm
+              Add your first crop
             </Link>
           </section>
         ) : (
