@@ -6,8 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getSelectedFarm } from "@/lib/farms";
 import {
   ASSISTANT_REPLY_FAILED,
+  analyzeCropImage,
   generateAssistantReply,
 } from "@/lib/ai/assistant";
+import { IMAGE_SCAN_DEFAULT_CONTENT } from "@/lib/consultation-constants";
 import {
   deriveConsultationTitle,
   getConsultationMessages,
@@ -17,6 +19,30 @@ import {
 
 /** Maximum message length accepted from the composer. */
 const MAX_MESSAGE_LENGTH = 4000;
+
+/** Image formats Gemini accepts as inline vision input. */
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+/**
+ * Hard cap on the base64 image payload (characters). Keeps the action body
+ * comfortably below the 1MB server-action limit — the client already
+ * downsizes photos before sending.
+ */
+const MAX_IMAGE_BASE64_CHARS = 900_000;
+
+const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** A crop photo sent with a message, downscaled to JPEG by the client. */
+export type SendImageInput = {
+  mimeType: string;
+  base64: string;
+};
 
 export type SendMessageResult = {
   error?: string;
@@ -57,7 +83,9 @@ async function getAuthContext() {
 
 /**
  * Saves a user message to the active consultation for the selected farm,
- * then generates the assistant reply for it.
+ * then generates the assistant reply for it. A message may carry one crop
+ * photo — the image is analyzed server-side for that request only and is
+ * never persisted; only its caption (or a short label) is saved.
  *
  * Order matters: the user message is persisted first, so it survives even
  * when the Gemini call fails. The reply — when generated — is saved as an
@@ -65,16 +93,38 @@ async function getAuthContext() {
  * always re-derived from the database — the database, not the client, is
  * the source of truth.
  */
-export async function sendMessage(content: string): Promise<SendMessageResult> {
+export async function sendMessage(
+  content: string,
+  image?: SendImageInput
+): Promise<SendMessageResult> {
   const { supabase, userId } = await getAuthContext();
 
   const trimmed = content.trim();
-  if (!trimmed) {
-    return { error: "Write a message first." };
+  if (!trimmed && !image) {
+    return { error: "Write a message or attach a photo first." };
   }
   if (trimmed.length > MAX_MESSAGE_LENGTH) {
     return { error: "Message is too long. Please send a shorter message." };
   }
+  if (image) {
+    if (!ALLOWED_IMAGE_TYPES.has(image.mimeType)) {
+      return {
+        error: "That image format is not supported. Please send a JPEG, PNG or WebP photo.",
+      };
+    }
+    if (
+      !BASE64_PATTERN.test(image.base64) ||
+      image.base64.length > MAX_IMAGE_BASE64_CHARS
+    ) {
+      return { error: "The photo is too large to scan. Please try a smaller photo." };
+    }
+  }
+
+  // What the user-message row stores: the caption text when there is one,
+  // otherwise a short label so the image scan still reads clearly in history.
+  const displayContent = image
+    ? trimmed || IMAGE_SCAN_DEFAULT_CONTENT
+    : trimmed;
 
   const farm = await getSelectedFarm();
   if (!farm) {
@@ -107,7 +157,7 @@ export async function sendMessage(content: string): Promise<SendMessageResult> {
         id: crypto.randomUUID(),
         user_id: userId,
         farm_id: farm.id,
-        title: deriveConsultationTitle(trimmed),
+        title: deriveConsultationTitle(displayContent),
         status: "active",
         created_at: now,
         updated_at: now,
@@ -129,8 +179,8 @@ export async function sendMessage(content: string): Promise<SendMessageResult> {
       consultation_id: consultation.id,
       user_id: userId,
       role: "user",
-      input_type: "text",
-      content: trimmed,
+      input_type: image ? "image" : "text",
+      content: displayContent,
       created_at: now,
     })
     .select("*")
@@ -145,9 +195,18 @@ export async function sendMessage(content: string): Promise<SendMessageResult> {
 
   // The user message is safely stored — generate the reply after it, with
   // the recent conversation (including the message just saved) and the
-  // selected farm as context.
+  // selected farm as context. Image messages analyze the photo itself, so
+  // the just-saved image row (the last one) is excluded from history — the
+  // photo is sent as the new turn instead.
   const history = await getConsultationMessages(consultation.id);
-  const reply = await generateAssistantReply({ farm, history });
+  const reply = image
+    ? await analyzeCropImage({
+        farm,
+        caption: displayContent,
+        image,
+        history: history.slice(0, -1),
+      })
+    : await generateAssistantReply({ farm, history });
 
   if ("error" in reply) {
     // Keep the saved user message; only the reply is missing.

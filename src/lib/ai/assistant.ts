@@ -5,12 +5,16 @@ import {
   searchKnowledgeChunks,
   type MatchedKnowledgeChunk,
 } from "@/lib/knowledge/rag";
-import { generateGeminiText, type GeminiTurn } from "./gemini";
+import {
+  generateGeminiText,
+  type GeminiImage,
+  type GeminiTurn,
+} from "./gemini";
 
 /**
  * Behaviour rules for the consultation assistant. Retrieved knowledge
- * (RAG) from the knowledge layer is connected as supporting evidence;
- * image analysis and verified treatment data are later steps.
+ * (RAG) from the knowledge layer is connected as supporting evidence; crop
+ * photos run through the separate image-analysis path (analyzeCropImage).
  */
 const SYSTEM_PROMPT = `You are ZarratAI, an agricultural decision-support assistant for farmers in Punjab, Pakistan.
 
@@ -50,6 +54,41 @@ Strict limits at this stage:
 - Do NOT give pesticide dosages, formulations or final pesticide recommendations. Never invent pesticide names, brands, active ingredients or restrictions. If the farmer asks for a spray or medicine, say that current pesticide and product guidance should be verified from an official or current source, and follow the pesticide-question rules above when retrieved context exists.
 - Do NOT recommend organic, homemade or other non-chemical treatments either.
 - You cannot see images and you have no weather data. Reason from the farmer's description, the farm details and any retrieved knowledge included in these instructions; when no retrieved knowledge is relevant, the general-guidance opening rule above applies.`;
+
+/**
+ * Behaviour rules for the crop-image analysis path. Kept deliberately
+ * separate from SYSTEM_PROMPT: image scans have their own hard safety
+ * rules and never touch retrieved knowledge (RAG is not involved).
+ */
+const IMAGE_SCAN_PROMPT = `You are ZarratAI's crop image analysis for farmers in Punjab, Pakistan. The farmer has sent a photo from their farm, and you may also see the recent conversation before it.
+
+Your job:
+- Look carefully at the photo and report ONLY what is actually visible in it.
+- Give the likely visible issue(s) as possibilities, never as a confirmed diagnosis.
+- Describe the visible symptoms you observe (for example leaf colour, spots, stripes, pattern, which parts of the plant are affected, how much of the plant is affected) — only what the photo actually shows.
+- Use cautious wording throughout: "possible", "could be", "cannot be confirmed from the photo alone".
+- Ask 1 to 3 short follow-up questions that would help narrow down the problem (for example how it started, how fast it is spreading, which plants are affected, recent irrigation or fertilizer).
+- Suggest practical NON-CHEMICAL observations the farmer can make next (for example checking under the leaves, comparing new and old leaves, looking at nearby plants, checking the stem near the soil). Describe them as things to observe, never as treatments.
+
+Hard safety rules:
+- NEVER present an image-only diagnosis as confirmed. A photo alone cannot confirm a diagnosis.
+- Do NOT diagnose from invisible facts: never state causes, pests, roots, soil or history that cannot be seen in the photo or read in the conversation.
+- NEVER give pesticide or product names, brands, active ingredients, doses, application rates, PHI (pre-harvest interval), REI (re-entry interval) or registration claims based on the photo.
+- If the farmer asks what pesticide or chemical to spray, say clearly that current pesticide and product guidance should be verified from an official or current source (for example the Agriculture Department of Punjab at agripunjab.gov.pk), and do NOT recommend any specific product or chemical treatment.
+- If the photo is unclear, blurry, too dark, badly framed or does not clearly show a crop problem, say so plainly, do NOT guess, and briefly tell the farmer what a better photo would include (for example a close-up of the affected leaf, the whole plant, in daylight).
+- If the crop in the photo clearly does not match the farm details provided, mention that difference briefly.
+
+How to communicate:
+- Reply in the language the farmer writes in (Urdu, Punjabi or English). If the farmer sent no text, use the language of the recent conversation, or English.
+- Be concise and practical: short paragraphs or simple lists.
+- Do not invent statistics, percentages or sources.
+
+Structure the reply with these short labelled sections, in plain text:
+What I can see:
+Possible causes:
+What is still unclear:
+What to observe next:
+Questions for you:`;
 
 /** How many of the most recent messages are sent to the model as context. */
 const MAX_HISTORY_MESSAGES = 20;
@@ -107,6 +146,44 @@ export async function generateAssistantReply(options: {
 }
 
 /**
+ * Analyzes a crop photo the farmer just sent: image-scan system prompt +
+ * farm context + the prior conversation, with the photo attached to the new
+ * user turn. The image is used for this request only and never persisted.
+ * Returns a friendly error instead of throwing so the caller can keep the
+ * saved user message.
+ */
+export async function analyzeCropImage(options: {
+  farm: Farm;
+  /** Caption text sent with the photo (never empty — a default label is used). */
+  caption: string;
+  /** The photo to analyze, as inline base64. Server-side only. */
+  image: GeminiImage;
+  /** Conversation before the image message, oldest first. */
+  history: ConsultationMessage[];
+}): Promise<AssistantReplyResult> {
+  const turns = toGeminiTurns(options.history);
+  turns.push({ role: "user", text: options.caption, image: options.image });
+
+  try {
+    const text = await generateGeminiText({
+      systemInstruction: [
+        IMAGE_SCAN_PROMPT,
+        "Farm details (entered by the farmer — use as context):",
+        buildFarmContextLines(options.farm).join("\n"),
+      ].join("\n\n"),
+      turns,
+    });
+    return { text };
+  } catch (err) {
+    console.error(
+      "Failed to analyze crop image:",
+      err instanceof Error ? err.message : err
+    );
+    return { error: ASSISTANT_REPLY_FAILED };
+  }
+}
+
+/**
  * Combines the behavioural prompt with the selected farm's details and
  * any retrieved knowledge chunks.
  */
@@ -114,6 +191,21 @@ function buildSystemInstruction(
   farm: Farm,
   knowledge: MatchedKnowledgeChunk[] | null
 ): string {
+  const sections = [
+    SYSTEM_PROMPT,
+    "Farm details (entered by the farmer — use as context):",
+    buildFarmContextLines(farm).join("\n"),
+  ];
+
+  if (knowledge && knowledge.length > 0) {
+    sections.push(buildKnowledgeSection(knowledge));
+  }
+
+  return sections.join("\n\n");
+}
+
+/** Farm details as context lines, shared by the text and image-scan prompts. */
+function buildFarmContextLines(farm: Farm): string[] {
   const lines: string[] = [`- Farm name: ${farm.name}`];
   lines.push(`- Location: ${farm.district} District, ${farm.tehsil} Tehsil`);
   lines.push(`- Area: ${farm.area} ${farm.area_unit ?? "acres"}`);
@@ -122,18 +214,7 @@ function buildSystemInstruction(
   if (farm.crop_stage) lines.push(`- Crop stage: ${farm.crop_stage}`);
   if (farm.irrigation) lines.push(`- Irrigation: ${farm.irrigation}`);
   if (farm.notes) lines.push(`- Farmer's notes: ${farm.notes}`);
-
-  const sections = [
-    SYSTEM_PROMPT,
-    "Farm details (entered by the farmer — use as context):",
-    lines.join("\n"),
-  ];
-
-  if (knowledge && knowledge.length > 0) {
-    sections.push(buildKnowledgeSection(knowledge));
-  }
-
-  return sections.join("\n\n");
+  return lines;
 }
 
 /**

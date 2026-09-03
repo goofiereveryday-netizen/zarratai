@@ -16,10 +16,18 @@ const GENERATE_CONTENT_URL = `https://generativelanguage.googleapis.com/v1beta/m
 /** Hard cap so a hung upstream request cannot stall the server action. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/** An inline image part (raw base64, no data-URL prefix). */
+export type GeminiImage = {
+  mimeType: string;
+  base64: string;
+};
+
 /** One conversational turn sent to the model. Gemini calls the assistant "model". */
 export type GeminiTurn = {
   role: "user" | "model";
   text: string;
+  /** Optional image attached to this turn as inline vision input. */
+  image?: GeminiImage;
 };
 
 /** Sanitized error — safe to log, never returned to the browser as-is. */
@@ -39,8 +47,9 @@ type GeminiResponse = {
 
 /**
  * Sends a system instruction plus an alternating user/model conversation to
- * Gemini and returns the generated text. Throws GeminiError when the API key
- * is missing, the request fails, or the response carries no usable text.
+ * Gemini and returns the generated text. Turns may carry an optional inline
+ * image for vision input. Throws GeminiError when the API key is missing, the
+ * request fails, or the response carries no usable text.
  */
 export async function generateGeminiText(options: {
   systemInstruction: string;
@@ -63,7 +72,19 @@ export async function generateGeminiText(options: {
         systemInstruction: { parts: [{ text: options.systemInstruction }] },
         contents: options.turns.map((turn) => ({
           role: turn.role,
-          parts: [{ text: turn.text }],
+          parts: [
+            ...(turn.text ? [{ text: turn.text }] : []),
+            ...(turn.image
+              ? [
+                  {
+                    inline_data: {
+                      mime_type: turn.image.mimeType,
+                      data: turn.image.base64,
+                    },
+                  },
+                ]
+              : []),
+          ],
         })),
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
