@@ -37,6 +37,7 @@ export type {
   EmbedAndInsertOutcome,
   KnowledgeChunkInsertInput,
   KnowledgeChunkRow,
+  KnowledgeDbClientOptions,
   KnowledgeDocumentRow,
   MatchedKnowledgeChunk,
   TrainingManualChunkInput,

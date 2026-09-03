@@ -6,9 +6,14 @@
  * Ingests the hard-coded, manually verified records from ./manual-seed into
  * Supabase: real knowledge rows → Gemini embeddings → knowledge_chunks.
  *
- * This function accepts NO external input — it only reads the local seed
- * file, which a human fills with verified manual records. There is
- * deliberately no parameter for arbitrary content.
+ * This function accepts NO external content input — it only reads the local
+ * seed file, which a human fills with verified manual records. There is
+ * deliberately no parameter for arbitrary content. The only optional
+ * parameter is a pre-built Supabase client (KnowledgeDbClientOptions):
+ * the DEV-only /api/knowledge/ingest-manual route passes the service-role
+ * admin client there so seed rows can be written under the locked-down
+ * knowledge grants; without it, the standard authenticated server client
+ * is used.
  *
  * Every inserted chunk is stamped with the mandatory training-manual safe
  * defaults (requires_current_verification / not pesticide-actionable) by
@@ -23,6 +28,7 @@ import {
 import {
   embedAndInsertKnowledgeChunk,
   getOrCreateKnowledgeDocument,
+  type KnowledgeDbClientOptions,
 } from "./db";
 import {
   MANUAL_SEED_RECORDS,
@@ -94,7 +100,9 @@ function validateSeedRecord(record: ManualSeedRecord): string | null {
  *
  * Never throws — every problem is reported per record in the summary.
  */
-export async function ingestManualSeedRecords(): Promise<ManualSeedIngestionSummary> {
+export async function ingestManualSeedRecords(
+  options?: KnowledgeDbClientOptions,
+): Promise<ManualSeedIngestionSummary> {
   const summary: ManualSeedIngestionSummary = {
     totalRecords: MANUAL_SEED_RECORDS.length,
     documentsCreated: 0,
@@ -134,16 +142,19 @@ export async function ingestManualSeedRecords(): Promise<ManualSeedIngestionSumm
 
     let documentId: string;
     try {
-      const { document, created } = await getOrCreateKnowledgeDocument({
-        title: `${TRAINING_MANUAL_SOURCE_DOCUMENT} — ${sourcePartLabel}`,
-        sourceDocument: TRAINING_MANUAL_SOURCE_DOCUMENT,
-        sourceType: TRAINING_MANUAL_SOURCE_TYPE,
-        sourceTier: TRAINING_MANUAL_SOURCE_TIER,
-        sourcePart: sourcePartLabel,
-        // Publication date of the manual is unknown — never invented.
-        sourceDate: null,
-        sourceUrl: null,
-      });
+      const { document, created } = await getOrCreateKnowledgeDocument(
+        {
+          title: `${TRAINING_MANUAL_SOURCE_DOCUMENT} — ${sourcePartLabel}`,
+          sourceDocument: TRAINING_MANUAL_SOURCE_DOCUMENT,
+          sourceType: TRAINING_MANUAL_SOURCE_TYPE,
+          sourceTier: TRAINING_MANUAL_SOURCE_TIER,
+          sourcePart: sourcePartLabel,
+          // Publication date of the manual is unknown — never invented.
+          sourceDate: null,
+          sourceUrl: null,
+        },
+        options,
+      );
       documentId = document.id;
       if (created) {
         summary.documentsCreated += 1;
@@ -164,14 +175,17 @@ export async function ingestManualSeedRecords(): Promise<ManualSeedIngestionSumm
     }
 
     for (const { record, index } of records) {
-      const outcome = await embedAndInsertKnowledgeChunk({
-        document_id: documentId,
-        content: record.content,
-        crop: record.crop,
-        problem_type: record.problemType,
-        problem_name: record.problemName,
-        source_page: record.sourcePage,
-      });
+      const outcome = await embedAndInsertKnowledgeChunk(
+        {
+          document_id: documentId,
+          content: record.content,
+          crop: record.crop,
+          problem_type: record.problemType,
+          problem_name: record.problemName,
+          source_page: record.sourcePage,
+        },
+        options,
+      );
 
       if (outcome.status === "inserted") {
         summary.chunksInserted += 1;

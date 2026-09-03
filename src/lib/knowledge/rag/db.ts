@@ -22,8 +22,16 @@
  *
  * insertKnowledgeChunk is the generic low-level insert for future higher-tier
  * sources; it requires the caller to state both flags explicitly.
+ *
+ * Write helpers accept an optional injected Supabase client
+ * (KnowledgeDbClientOptions). The default is the standard authenticated
+ * server client; the DEV-only /api/knowledge/ingest-manual route is the
+ * only caller that injects the service-role admin client. Retrieval
+ * (searchKnowledgeChunks) accepts NO injection — it always uses the
+ * standard authenticated client and the match_knowledge_chunks RPC.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import {
   KNOWLEDGE_EMBEDDING_DIMENSIONS,
@@ -144,6 +152,25 @@ function requireSourcePage(sourcePage: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Supabase client resolution (write-path injection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional Supabase client injection for the knowledge write helpers.
+ *
+ * By default every helper uses the standard authenticated server client —
+ * the same one used by all normal app flows. The DEV-only
+ * /api/knowledge/ingest-manual route injects the service-role admin client
+ * (src/lib/supabase/admin.ts) so seed rows can be written under the
+ * locked-down knowledge grants; that route is the ONLY sanctioned caller of
+ * an elevated client.
+ */
+export type KnowledgeDbClientOptions = {
+  /** Pre-built Supabase client; defaults to the standard server client. */
+  supabase?: SupabaseClient;
+};
+
+// ---------------------------------------------------------------------------
 // A. Knowledge documents
 // ---------------------------------------------------------------------------
 
@@ -162,6 +189,7 @@ export type CreateKnowledgeDocumentInput = {
 /** Inserts one public.knowledge_documents row and returns it. */
 export async function createKnowledgeDocument(
   input: CreateKnowledgeDocumentInput,
+  options?: KnowledgeDbClientOptions,
 ): Promise<KnowledgeDocumentRow> {
   const title = requireNonEmpty(input.title, "title");
   const sourceDocument = requireNonEmpty(
@@ -175,7 +203,7 @@ export async function createKnowledgeDocument(
     );
   }
 
-  const supabase = await createClient();
+  const supabase = options?.supabase ?? (await createClient());
   const { data, error } = await supabase
     .from("knowledge_documents")
     .insert({
@@ -207,6 +235,7 @@ export async function createKnowledgeDocument(
  */
 export async function getOrCreateKnowledgeDocument(
   input: CreateKnowledgeDocumentInput,
+  options?: KnowledgeDbClientOptions,
 ): Promise<{ document: KnowledgeDocumentRow; created: boolean }> {
   const sourceDocument = requireNonEmpty(
     input.sourceDocument,
@@ -214,7 +243,7 @@ export async function getOrCreateKnowledgeDocument(
   );
   const sourcePart = input.sourcePart?.trim() || null;
 
-  const supabase = await createClient();
+  const supabase = options?.supabase ?? (await createClient());
   let query = supabase
     .from("knowledge_documents")
     .select(DOCUMENT_COLUMNS)
@@ -241,7 +270,7 @@ export async function getOrCreateKnowledgeDocument(
     return { document: data as KnowledgeDocumentRow, created: false };
   }
 
-  const document = await createKnowledgeDocument(input);
+  const document = await createKnowledgeDocument(input, options);
   return { document, created: true };
 }
 
@@ -269,6 +298,7 @@ export type KnowledgeChunkInsertInput = {
  */
 export async function insertKnowledgeChunk(
   input: KnowledgeChunkInsertInput,
+  options?: KnowledgeDbClientOptions,
 ): Promise<KnowledgeChunkRow> {
   const documentId = requireNonEmpty(input.document_id, "document_id");
   const content = requireNonEmpty(input.content, "content");
@@ -290,7 +320,7 @@ export async function insertKnowledgeChunk(
     );
   }
 
-  const supabase = await createClient();
+  const supabase = options?.supabase ?? (await createClient());
   const { data, error } = await supabase
     .from("knowledge_chunks")
     .insert({
@@ -352,6 +382,7 @@ export type EmbedAndInsertOutcome =
  */
 export async function embedAndInsertKnowledgeChunk(
   input: TrainingManualChunkInput,
+  options?: KnowledgeDbClientOptions,
 ): Promise<EmbedAndInsertOutcome> {
   let documentId: string;
   let content: string;
@@ -373,13 +404,16 @@ export async function embedAndInsertKnowledgeChunk(
   }
 
   // 1. Duplicate pre-check before spending an embedding API call.
-  const dedup = await findDuplicateChunk({
-    documentId,
-    sourcePage,
-    crop,
-    problemName,
-    content,
-  });
+  const dedup = await findDuplicateChunk(
+    {
+      documentId,
+      sourcePage,
+      crop,
+      problemName,
+      content,
+    },
+    options?.supabase,
+  );
 
   if (dedup.kind === "error") {
     console.warn(
@@ -413,17 +447,20 @@ export async function embedAndInsertKnowledgeChunk(
 
   // 3. Insert with the hard-coded training-manual safe defaults.
   try {
-    const chunk = await insertKnowledgeChunk({
-      document_id: documentId,
-      content,
-      crop,
-      problem_type: input.problem_type.trim(),
-      problem_name: problemName,
-      source_page: sourcePage,
-      verification_status: TRAINING_MANUAL_CHUNK_VERIFICATION_STATUS,
-      pesticide_actionable: TRAINING_MANUAL_CHUNK_PESTICIDE_ACTIONABLE,
-      embedding,
-    });
+    const chunk = await insertKnowledgeChunk(
+      {
+        document_id: documentId,
+        content,
+        crop,
+        problem_type: input.problem_type.trim(),
+        problem_name: problemName,
+        source_page: sourcePage,
+        verification_status: TRAINING_MANUAL_CHUNK_VERIFICATION_STATUS,
+        pesticide_actionable: TRAINING_MANUAL_CHUNK_PESTICIDE_ACTIONABLE,
+        embedding,
+      },
+      options,
+    );
 
     return {
       status: "inserted",
@@ -454,9 +491,10 @@ type DuplicateLookup =
 
 async function findDuplicateChunk(
   key: DuplicateKey,
+  supabase?: SupabaseClient,
 ): Promise<DuplicateLookup> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  const client = supabase ?? (await createClient());
+  const { data, error } = await client
     .from("knowledge_chunks")
     .select("id, crop, problem_name, content")
     .eq("document_id", key.documentId)
