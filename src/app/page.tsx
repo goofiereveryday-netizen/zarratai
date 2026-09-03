@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { ChatIcon, FarmIcon } from "@/components/icons";
+import { WeatherCard } from "@/components/weather-card";
 import { getSelectedFarm } from "@/lib/farms";
 
 export default async function Home() {
@@ -40,6 +42,24 @@ export default async function Home() {
             </p>
           )}
         </section>
+
+        {/* Farm weather (streams in so the dashboard never waits on it) */}
+        {selectedFarm && (
+          <Suspense
+            fallback={
+              <div className="mb-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3">
+                <p className="text-sm text-forest-floor/60">
+                  Loading farm weather…
+                </p>
+              </div>
+            }
+          >
+            <WeatherCard
+              district={selectedFarm.district}
+              tehsil={selectedFarm.tehsil}
+            />
+          </Suspense>
+        )}
 
         {/* Primary action: Ask ZarratAI */}
         <section className="mb-8 text-center md:text-left">
