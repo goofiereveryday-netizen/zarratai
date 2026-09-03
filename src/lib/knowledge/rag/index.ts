@@ -4,8 +4,9 @@
  * Server-only module. Do not import from client components.
  *
  * Phase scope: real knowledge rows → Gemini embeddings → Supabase →
- * semantic retrieval test. Retrieval results are NOT yet connected to the
- * Gemini assistant flow — that integration is a later phase.
+ * semantic retrieval. Retrieved chunks ground the Gemini assistant flow
+ * (src/lib/ai/assistant.ts) as supporting evidence only — never as
+ * verified current guidance.
  *
  * Ingestion of training-manual content must go through
  * ingestManualSeedRecords (hard-coded seed records only — never arbitrary
