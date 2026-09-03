@@ -12,6 +12,7 @@ import {
 import {
   CameraIcon,
   CloseIcon,
+  MicIcon,
   PhotoIcon,
   PlusIcon,
   SendIcon,
@@ -25,6 +26,12 @@ import type {
   Consultation,
   ConsultationMessage,
 } from "@/lib/consultations";
+import {
+  getSpeechRecognition,
+  SPEECH_LANGUAGES,
+  SPEECH_UNSUPPORTED_MESSAGE,
+  type SpeechRecognitionLike,
+} from "@/lib/speech";
 
 /** A crop photo the farmer attached, downscaled in the browser. */
 type AttachedImage = {
@@ -53,9 +60,19 @@ export function ConsultationChat({
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [sending, startSendTransition] = useTransition();
   const [startingNew, startNewTransition] = useTransition();
+  const [listening, setListening] = useState(false);
+  const [speechNotice, setSpeechNotice] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const firstRenderRef = useRef(true);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Voice input bookkeeping: the composer text captured when listening
+  // started, plus the transcript finalized so far. Interim results are
+  // appended live so the farmer can review the text before sending.
+  const speechBaseRef = useRef("");
+  const speechFinalRef = useRef("");
+  const speechLangIndexRef = useRef(0);
+  const speechRetryRef = useRef(false);
 
   // Keep the latest message visible: jump straight to the bottom on load,
   // then smooth-scroll as messages arrive.
@@ -68,10 +85,25 @@ export function ConsultationChat({
     firstRenderRef.current = false;
   }, [messages.length]);
 
+  // End any live recognition when the chat unmounts.
+  useEffect(() => {
+    return () => {
+      const recognition = recognitionRef.current;
+      recognitionRef.current = null;
+      try {
+        recognition?.abort();
+      } catch {
+        // The browser tears down ended sessions on its own.
+      }
+    };
+  }, []);
+
   function submit() {
     const content = input.trim();
     const image = attachedImage;
     if ((!content && !image) || sending) return;
+    // Never send mid-listening: stop the mic so the session ends cleanly.
+    if (listening) stopListening();
 
     // What the sent message shows: the caption when there is one, otherwise
     // a short label so an image scan reads clearly.
@@ -185,6 +217,116 @@ export function ConsultationChat({
       );
   }
 
+  /**
+   * Starts voice recognition and streams the transcript into the
+   * composer. The farmer reviews and edits the text before sending —
+   * nothing is sent automatically.
+   */
+  function startListening() {
+    const SpeechRecognitionCtor = getSpeechRecognition();
+    if (!SpeechRecognitionCtor) {
+      setSpeechNotice(SPEECH_UNSUPPORTED_MESSAGE);
+      return;
+    }
+
+    // Recognized speech appends to whatever the farmer already typed.
+    speechBaseRef.current = input
+      ? input.endsWith(" ")
+        ? input
+        : `${input} `
+      : "";
+    speechFinalRef.current = "";
+
+    const recognition = new SpeechRecognitionCtor();
+    recognitionRef.current = recognition;
+    // Urdu first for the Punjab audience; browsers without the Urdu
+    // locale fall back to English (see onerror below).
+    recognition.lang = SPEECH_LANGUAGES[speechLangIndexRef.current];
+    recognition.continuous = false; // one utterance per tap — tap again to add more
+    recognition.interimResults = true; // live feedback in the composer
+
+    recognition.onresult = (event) => {
+      let finalChunk = "";
+      let interimChunk = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result[0]?.transcript ?? "";
+        if (result.isFinal) {
+          finalChunk += transcript;
+        } else {
+          interimChunk += transcript;
+        }
+      }
+      if (finalChunk) {
+        speechFinalRef.current += finalChunk;
+      }
+      // Show everything recognized so the farmer can review before sending.
+      setInput(
+        `${speechBaseRef.current}${speechFinalRef.current}${interimChunk}`
+      );
+    };
+
+    recognition.onerror = (event) => {
+      if (
+        event.error === "language-not-supported" &&
+        speechLangIndexRef.current < SPEECH_LANGUAGES.length - 1
+      ) {
+        // Retry with English once this failed session has fully ended.
+        speechRetryRef.current = true;
+        return;
+      }
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setSpeechNotice("Microphone permission was denied.");
+      } else if (event.error === "audio-capture") {
+        setSpeechNotice("No microphone was found on this device.");
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        setSpeechNotice("Voice input stopped unexpectedly. Please try again.");
+      }
+    };
+
+    recognition.onend = () => {
+      // Skip when a newer session or a manual stop already took over.
+      if (recognitionRef.current !== recognition) return;
+      recognitionRef.current = null;
+      if (speechRetryRef.current) {
+        speechRetryRef.current = false;
+        startListening();
+        return;
+      }
+      setListening(false);
+    };
+
+    try {
+      recognition.start();
+      setSpeechNotice(null);
+      setListening(true);
+    } catch {
+      // start() throws when another session is still winding down.
+      setListening(false);
+    }
+  }
+
+  /** Stops the active recognition; the transcript typed so far is kept. */
+  function stopListening() {
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    speechRetryRef.current = false;
+    try {
+      recognition?.stop();
+    } catch {
+      // The session already ended — nothing to stop.
+    }
+    setListening(false);
+  }
+
+  function handleMicClick() {
+    if (listening) {
+      stopListening();
+      return;
+    }
+    startListening();
+  }
+
   /** Downscales the photo in the browser so the scan payload stays small. */
   async function resizePhoto(file: File): Promise<AttachedImage> {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -291,11 +433,28 @@ export function ConsultationChat({
         </p>
       )}
 
+      {speechNotice && (
+        <p className="mt-2 text-xs text-forest-floor/60" role="status">
+          {speechNotice}
+        </p>
+      )}
+
       {/* Composer — stays visible above the mobile bottom navigation */}
       <form
         onSubmit={handleSubmit}
         className="sticky bottom-16 z-10 mt-3 bg-wheat-cream pb-2 pt-1 md:bottom-0 md:pb-4"
       >
+        {/* Live voice input — the transcript appears in the composer below. */}
+        {listening && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-harvest-copper/40 bg-wheat-cream-light px-2 py-1.5 text-xs font-medium text-harvest-copper">
+            <span className="relative flex h-2 w-2" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-harvest-copper opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-harvest-copper" />
+            </span>
+            Listening… speak now
+          </div>
+        )}
+
         {/* Photo waiting to be scanned — local preview, removed before send */}
         {attachedImage && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-2 py-1.5">
@@ -341,6 +500,20 @@ export function ConsultationChat({
           >
             <CameraIcon />
           </label>
+          <button
+            type="button"
+            onClick={handleMicClick}
+            disabled={sending}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-citron-beam ${
+              listening
+                ? "bg-harvest-copper text-wheat-cream"
+                : "text-forest-floor/60 hover:bg-forest-floor/5 hover:text-forest-floor"
+            } disabled:opacity-40`}
+            aria-label={listening ? "Stop voice input" : "Start voice input"}
+            title={listening ? "Stop voice input" : "Start voice input"}
+          >
+            <MicIcon />
+          </button>
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
