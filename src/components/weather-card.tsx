@@ -1,17 +1,23 @@
+import Link from "next/link";
 import { WeatherIcon } from "@/components/icons";
 import { getFarmWeather, type DailyForecast } from "@/lib/weather";
 
 /**
  * Compact current-conditions and short-forecast card for the selected farm.
- * Async server component — renders behind its own Suspense boundary on the
- * dashboard so the rest of the page never waits on the weather service.
+ * Async server component — renders behind its own Suspense boundary so the
+ * rest of the page never waits on the weather service. Used on the dashboard
+ * as a quick summary (with a "View forecast" link to /weather) and on the
+ * Farm Weather page as the detailed view (link hidden).
  */
 export async function WeatherCard({
   district,
   tehsil,
+  showForecastLink = true,
 }: {
   district: string;
   tehsil: string;
+  /** Shows the "View forecast" link to /weather; hidden on the page itself. */
+  showForecastLink?: boolean;
 }) {
   const weather = await getFarmWeather(district, tehsil);
 
@@ -50,9 +56,17 @@ export async function WeatherCard({
       <div className="flex items-center gap-2 text-sm text-forest-floor">
         <WeatherIcon />
         <span className="font-medium">Farm Weather</span>
-        <span className="truncate text-forest-floor/60">
+        <span className="min-w-0 flex-1 truncate text-forest-floor/60">
           · {weather.locationName}
         </span>
+        {showForecastLink && (
+          <Link
+            href="/weather"
+            className="shrink-0 text-sm font-medium text-olive-branch underline-offset-2 hover:underline focus-visible:outline-olive-branch"
+          >
+            View forecast
+          </Link>
+        )}
       </div>
 
       <div className="mt-2 flex items-baseline gap-2">

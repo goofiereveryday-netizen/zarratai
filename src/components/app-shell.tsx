@@ -24,7 +24,7 @@ const navItems: NavItem[] = [
   { label: "Assistant", href: "/assistant", primary: true },
   { label: "My Farms", href: "/farms" },
   { label: "Farm History", href: "/history" },
-  { label: "Farm Weather", href: "#farm-weather" },
+  { label: "Farm Weather", href: "/weather" },
   { label: "Settings", href: "#settings" },
 ];
 
