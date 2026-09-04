@@ -15,7 +15,10 @@ import {
   MicIcon,
   PhotoIcon,
   PlusIcon,
+  ScanIcon,
   SendIcon,
+  SpeakerIcon,
+  StopSpeakerIcon,
 } from "@/components/icons";
 import {
   sendMessage,
@@ -32,6 +35,12 @@ import {
   SPEECH_UNSUPPORTED_MESSAGE,
   type SpeechRecognitionLike,
 } from "@/lib/speech";
+import {
+  hasSignificantUrdu,
+  renderMarkdown,
+  splitLanguageSegments,
+  stripMarkdown,
+} from "@/lib/markdown-render";
 
 /** A crop photo the farmer attached, downscaled in the browser. */
 type AttachedImage = {
@@ -46,11 +55,14 @@ type ConsultationChatProps = {
   consultation: Consultation | null;
   /** Messages of the active consultation, oldest first. */
   messages: ConsultationMessage[];
+  /** When true, show a prominent camera/photo action for crop scanning. */
+  scanMode?: boolean;
 };
 
 export function ConsultationChat({
   consultation: initialConsultation,
   messages: initialMessages,
+  scanMode = false,
 }: ConsultationChatProps) {
   const [messages, setMessages] = useState(initialMessages);
   const [consultation, setConsultation] = useState(initialConsultation);
@@ -62,6 +74,12 @@ export function ConsultationChat({
   const [startingNew, startNewTransition] = useTransition();
   const [listening, setListening] = useState(false);
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [urduSpeechUnavailable, setUrduSpeechUnavailable] = useState(false);
+  // Browser TTS capability — starts false so the server render and the
+  // first client render are identical; detected only after mount, so
+  // the Read button appears post-hydration.
+  const [speechSupported, setSpeechSupported] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const firstRenderRef = useRef(true);
@@ -77,6 +95,26 @@ export function ConsultationChat({
   // recognition callbacks always read the current intent across the
   // session restarts browsers force on long listening periods.
   const speechActiveRef = useRef(false);
+  const speakingMessageIdRef = useRef<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  // Read-aloud playback: the <audio> element for ElevenLabs speech, its
+  // object URL (revoked on stop/end so nothing lingers), and an abort
+  // controller for the in-flight /api/tts request.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
+
+  // Detect browser speech-synthesis capability only after mount. The
+  // initial render (server and first client paint) always treats it as
+  // unsupported, so both trees match and hydration never mismatches. The
+  // check runs in a timer callback — not synchronously in the effect
+  // body — because a capability check needs the deferred setState pass.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setSpeechSupported("speechSynthesis" in window);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
 
   // Keep the latest message visible: jump straight to the bottom on load,
   // then smooth-scroll as messages arrive.
@@ -89,7 +127,18 @@ export function ConsultationChat({
     firstRenderRef.current = false;
   }, [messages.length]);
 
-  // End any live recognition when the chat unmounts.
+  // Scan mode: attempt to auto-activate camera input when the page loads.
+  // Browsers may block this after navigation, so the prominent button is the
+  // reliable fallback. We use a short delay to let the page fully render.
+  useEffect(() => {
+    if (!scanMode || !cameraInputRef.current) return;
+    const timer = window.setTimeout(() => {
+      cameraInputRef.current?.click();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [scanMode]);
+
+  // End any live recognition and read-aloud playback when the chat unmounts.
   useEffect(() => {
     return () => {
       speechActiveRef.current = false;
@@ -99,6 +148,29 @@ export function ConsultationChat({
         recognition?.abort();
       } catch {
         // The browser tears down ended sessions on its own.
+      }
+      // Stop any active speech synthesis
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      // Abort an in-flight TTS request and release the audio element and
+      // its object URL — nothing is persisted or left playing.
+      ttsAbortRef.current?.abort();
+      ttsAbortRef.current = null;
+      const audio = audioRef.current;
+      audioRef.current = null;
+      if (audio) {
+        audio.onended = null;
+        audio.onerror = null;
+        try {
+          audio.pause();
+        } catch {
+          // Already stopped.
+        }
+      }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
       }
     };
   }, []);
@@ -382,6 +454,256 @@ export function ConsultationChat({
     startListening();
   }
 
+  /** Pauses the playing audio element and revokes its object URL. */
+  function releaseAudio() {
+    const audio = audioRef.current;
+    audioRef.current = null;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      try {
+        audio.pause();
+      } catch {
+        // Already stopped.
+      }
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }
+
+  /**
+   * Stops everything read-aloud related: browser speech synthesis, an
+   * in-flight ElevenLabs request, and any playing audio. Resets the
+   * speaking state so the button flips back to "Read".
+   */
+  function stopAllSpeech() {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    ttsAbortRef.current?.abort();
+    ttsAbortRef.current = null;
+    releaseAudio();
+    speakingMessageIdRef.current = null;
+    setSpeakingMessageId(null);
+  }
+
+  /**
+   * Browser speech synthesis with sequential Urdu/English segments — used
+   * for English-only answers and as the fallback when ElevenLabs fails.
+   */
+  function speakWithBrowser(
+    message: ConsultationMessage,
+    cleanedText: string
+  ) {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+
+    // Split into language segments (Urdu vs Latin/English)
+    const segments = splitLanguageSegments(cleanedText);
+
+    // Get available voices
+    const voices = synth.getVoices();
+    const urduVoice = voices.find((v) => v.lang.startsWith("ur"));
+    const englishVoice = voices.find((v) => v.lang.startsWith("en"));
+
+    // Check if Urdu speech is needed but unavailable
+    const hasUrduSegment = segments.some((s) => s.isUrdu);
+    setUrduSpeechUnavailable(hasUrduSegment && !urduVoice);
+
+    speakingMessageIdRef.current = message.id;
+    setSpeakingMessageId(message.id);
+
+    // Queue utterances sequentially
+    let currentIndex = 0;
+
+    function speakNext() {
+      if (speakingMessageIdRef.current !== message.id) return; // stopped
+      if (currentIndex >= segments.length) {
+        // All segments finished
+        speakingMessageIdRef.current = null;
+        setSpeakingMessageId(null);
+        return;
+      }
+
+      const segment = segments[currentIndex];
+      currentIndex++;
+
+      // Skip empty segments
+      if (!segment.text.trim()) {
+        speakNext();
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(segment.text);
+
+      if (segment.isUrdu) {
+        utterance.lang = "ur-PK";
+        if (urduVoice) {
+          utterance.voice = urduVoice;
+        } else {
+          // No Urdu voice available — skip this segment silently
+          // (the notice is already shown)
+          speakNext();
+          return;
+        }
+      } else {
+        utterance.lang = "en-US";
+        if (englishVoice) {
+          utterance.voice = englishVoice;
+        }
+      }
+
+      utterance.onend = () => speakNext();
+      utterance.onerror = () => {
+        // On error, try to continue with next segment
+        speakNext();
+      };
+
+      synth.speak(utterance);
+    }
+
+    speakNext();
+  }
+
+  /**
+   * Urdu-heavy answers: request audio from the authenticated /api/tts
+   * endpoint (ElevenLabs multilingual voice) and play it in-browser.
+   *
+   * Lifecycle: IDLE -> (Read clicked) -> LOADING (request in flight,
+   * button reads Stop) -> PLAYING (audio element active) -> IDLE only
+   * when the audio naturally ends, the farmer clicks Stop, or a
+   * confirmed failure occurs (then the browser fallback runs or the
+   * notice is shown). Fetch completion alone never resets the button.
+   */
+  async function speakWithElevenLabs(
+    message: ConsultationMessage,
+    rawText: string
+  ) {
+    // LOADING — the button flips to "Stop" immediately so the farmer
+    // can also cancel while the audio is still being fetched.
+    speakingMessageIdRef.current = message.id;
+    setSpeakingMessageId(message.id);
+    setUrduSpeechUnavailable(false);
+
+    const controller = new AbortController();
+    ttsAbortRef.current = controller;
+
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: rawText }),
+        signal: controller.signal,
+      });
+
+      // Verify the response is actually audio before playing — a JSON
+      // error body (even one with an OK status) must never reach the
+      // <audio> element.
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!response.ok || !contentType.startsWith("audio/")) {
+        throw new Error("tts-unavailable");
+      }
+
+      // Stopped while the request was in flight — discard the audio.
+      if (speakingMessageIdRef.current !== message.id) return;
+
+      const blob = await response.blob();
+      if (speakingMessageIdRef.current !== message.id) return;
+
+      // PLAYING — the Audio object and its object URL stay in refs
+      // until playback ends or is stopped; the URL is never revoked
+      // before the audio finishes.
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      objectUrlRef.current = url;
+
+      // Playback finished — clean up, revoke the URL, reset the button.
+      // A stale onended from a previously replaced audio must never
+      // release the newer one, so only the current audio acts.
+      audio.onended = () => {
+        if (audioRef.current !== audio) return;
+        releaseAudio();
+        if (speakingMessageIdRef.current === message.id) {
+          speakingMessageIdRef.current = null;
+          setSpeakingMessageId(null);
+        }
+      };
+      // Playback error — clean up, then fall back to browser speech.
+      // Same stale-callback guard as onended.
+      audio.onerror = () => {
+        if (audioRef.current !== audio) return;
+        releaseAudio();
+        if (speakingMessageIdRef.current === message.id) {
+          speakWithBrowser(message, stripMarkdown(rawText));
+        }
+      };
+
+      await audio.play();
+    } catch {
+      // Stop was requested while fetching — nothing further to do.
+      if (speakingMessageIdRef.current !== message.id) return;
+
+      // Confirmed TTS/playback failure — clean up, then fall back to
+      // browser speech when an Urdu voice exists, otherwise show the
+      // short notice and reset.
+      releaseAudio();
+      const synth =
+        typeof window !== "undefined" ? window.speechSynthesis : null;
+      const hasUrduVoice = synth
+        ? synth.getVoices().some((v) => v.lang.startsWith("ur"))
+        : false;
+      if (hasUrduVoice) {
+        speakWithBrowser(message, stripMarkdown(rawText));
+        return;
+      }
+      speakingMessageIdRef.current = null;
+      setSpeakingMessageId(null);
+      setUrduSpeechUnavailable(true);
+    } finally {
+      if (ttsAbortRef.current === controller) {
+        ttsAbortRef.current = null;
+      }
+    }
+  }
+
+  /**
+   * Reads an assistant message aloud. Urdu-heavy answers use the
+   * ElevenLabs multilingual voice via /api/tts (browser Urdu TTS is
+   * unreliable on many devices); English-only answers keep browser
+   * speech synthesis. Clicking the same message again stops the speech;
+   * clicking a different message stops the current speech and starts
+   * the new one.
+   */
+  async function handleToggleSpeak(message: ConsultationMessage) {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    // If this message is already speaking, stop it
+    if (speakingMessageIdRef.current === message.id) {
+      stopAllSpeech();
+      setUrduSpeechUnavailable(false);
+      return;
+    }
+
+    // Starting another answer stops the previous speech first.
+    stopAllSpeech();
+
+    const rawText = message.content ?? "";
+    if (!rawText.trim()) return;
+
+    // Strip markdown formatting before speech
+    const cleanedText = stripMarkdown(rawText);
+
+    if (hasSignificantUrdu(cleanedText)) {
+      await speakWithElevenLabs(message, rawText);
+      return;
+    }
+
+    speakWithBrowser(message, cleanedText);
+  }
+
   /** Downscales the photo in the browser so the scan payload stays small. */
   async function resizePhoto(file: File): Promise<AttachedImage> {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -452,6 +774,27 @@ export function ConsultationChat({
         aria-label="Conversation"
         className="flex flex-col gap-3 pt-1"
       >
+        {/* Scan mode: prominent camera/photo action */}
+        {scanMode && (
+          <div className="rounded-xl border-2 border-olive-branch bg-olive-branch/5 px-6 py-5 text-center">
+            <ScanIcon />
+            <h3 className="mt-2 text-base font-semibold text-deep-moss">
+              Scan your crop
+            </h3>
+            <p className="mt-1 text-sm text-forest-floor/70">
+              Take a photo of the crop problem for analysis.
+            </p>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-olive-branch px-5 py-3 text-base font-semibold text-wheat-cream transition-colors hover:bg-olive-branch/90 focus-visible:outline-citron-beam"
+            >
+              <CameraIcon />
+              Take crop photo
+            </button>
+          </div>
+        )}
+
         {messages.length === 0 ? (
           <div className="rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-10 text-center">
             <h3 className="text-base font-semibold text-deep-moss">
@@ -473,6 +816,9 @@ export function ConsultationChat({
                 key={message.id}
                 message={message}
                 pending={message.id === optimisticId}
+                speaking={message.id === speakingMessageId}
+                speechSupported={speechSupported}
+                onToggleSpeak={() => handleToggleSpeak(message)}
               />
             ))}
             {/* Status while the server generates and saves the assistant
@@ -491,6 +837,12 @@ export function ConsultationChat({
       {speechNotice && (
         <p className="mt-2 text-xs text-forest-floor/60" role="status">
           {speechNotice}
+        </p>
+      )}
+
+      {urduSpeechUnavailable && (
+        <p className="mt-2 text-xs text-amber-700" role="status">
+          Urdu read aloud is temporarily unavailable.
         </p>
       )}
 
@@ -601,6 +953,7 @@ export function ConsultationChat({
         />
         <input
           id="crop-camera-input"
+          ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
@@ -623,19 +976,25 @@ export function ConsultationChat({
 function MessageBubble({
   message,
   pending,
+  speaking,
+  speechSupported,
+  onToggleSpeak,
 }: {
   message: ConsultationMessage;
   pending: boolean;
+  speaking: boolean;
+  speechSupported: boolean;
+  onToggleSpeak: () => void;
 }) {
   const isUser = message.role === "user";
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-base leading-relaxed ${
+        className={`max-w-[85%] break-words rounded-2xl px-4 py-2.5 text-base leading-relaxed ${
           isUser
-            ? "rounded-tr-sm bg-harvest-copper text-wheat-cream"
-            : "rounded-tl-sm border border-forest-floor/10 bg-wheat-cream-light text-deep-moss"
+            ? "whitespace-pre-wrap rounded-tr-sm bg-harvest-copper text-wheat-cream"
+            : "rounded-tl-sm border border-forest-floor/10 bg-wheat-cream-light text-deep-moss [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul:last-child]:mb-0 [&_ol]:mb-2 [&_ol]:ml-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol:last-child]:mb-0 [&_li]:pl-1"
         } ${pending ? "opacity-60" : ""}`}
       >
         {isUser && message.input_type === "image" && (
@@ -644,7 +1003,27 @@ function MessageBubble({
             Photo
           </span>
         )}
-        {message.content ?? ""}
+        {isUser ? (
+          <span className="whitespace-pre-wrap">{message.content ?? ""}</span>
+        ) : (
+          renderMarkdown(message.content ?? "")
+        )}
+        {!isUser && !pending && message.content && speechSupported && (
+          <button
+            type="button"
+            onClick={onToggleSpeak}
+            className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-citron-beam ${
+              speaking
+                ? "bg-olive-branch/20 text-olive-branch"
+                : "bg-forest-floor/10 text-forest-floor/60 hover:bg-forest-floor/20 hover:text-forest-floor"
+            }`}
+            aria-label={speaking ? "Stop reading aloud" : "Read aloud"}
+            title={speaking ? "Stop reading aloud" : "Read aloud"}
+          >
+            {speaking ? <StopSpeakerIcon size={14} /> : <SpeakerIcon size={14} />}
+            {speaking ? "Stop" : "Read"}
+          </button>
+        )}
       </div>
     </div>
   );
