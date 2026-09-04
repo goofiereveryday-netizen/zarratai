@@ -81,6 +81,27 @@ export type CuratedSeedIngestionSummary = {
   failures: CuratedSeedFailure[];
 };
 
+/**
+ * Normalizes a sourceDate label for the knowledge_documents.source_date
+ * column (PostgreSQL DATE type).
+ *
+ * The curated batch may carry human-readable season/year labels such as
+ * "2023-24", "2024-25", or "2025" for provenance tracking. These are NOT
+ * valid SQL dates and must not be written to the column — but they are
+ * preserved in the curated seed records for human-readable provenance.
+ *
+ * Only ISO-8601 date strings (YYYY-MM-DD) pass through; everything else
+ * becomes null. Never invent dates.
+ */
+function normalizeSourceDate(value: string | undefined): string | null {
+  if (!value) return null;
+  // Match YYYY-MM-DD (strict: exactly 4-2-2 digits, no extra characters).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim();
+  }
+  return null;
+}
+
 /** Structural validation for curated seed records. */
 function validateCuratedRecord(record: CuratedSeedRecord): string | null {
   if (!record.crop?.trim()) {
@@ -196,7 +217,7 @@ export async function ingestCuratedSeedRecords(
           sourceType: first.sourceType,
           sourceTier: first.sourceTier,
           sourcePart,
-          sourceDate: first.sourceDate ?? null,
+          sourceDate: normalizeSourceDate(first.sourceDate),
           sourceUrl: null,
         },
         options,
