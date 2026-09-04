@@ -2,7 +2,9 @@ import type { Farm } from "@/lib/farms";
 import type { ConsultationMessage } from "@/lib/consultations";
 import {
   generateKnowledgeEmbedding,
+  getKnowledgeDocumentsByIds,
   searchKnowledgeChunks,
+  type KnowledgeDocumentMeta,
   type MatchedKnowledgeChunk,
 } from "@/lib/knowledge/rag";
 import {
@@ -33,16 +35,18 @@ How to communicate:
 Using the retrieved agricultural knowledge (when provided below):
 - HARD RULE: when retrieved chunks are provided, use ONLY facts explicitly present in those chunks for agricultural claims. Do NOT add unsourced agricultural facts from your own knowledge, and do NOT supplement the answer with general agricultural knowledge.
 - When retrieved context exists: answer only from that context, and ask the farmer follow-up questions when information you need is missing.
-- Retrieved chunks are supporting evidence, not verified current guidance. Chunks with verification_status = requires_current_verification are manual-derived supporting information — describe them that way.
-- Never claim the training manual it comes from is an official Government of Punjab publication — its publisher is unverified.
-- Knowledge with verification_status = requires_current_verification may support diagnosis, symptoms, scouting, general agronomy and cultural, physical or IPM guidance.
-- It MUST NOT independently support actionable pesticide recommendations.
-- When a chunk has pesticide_actionable = false, there must be absolutely no pesticide-specific recommendation and no treatment threshold. Do not give a product-specific pesticide name, dose, application rate, PHI (pre-harvest interval) or REI (re-entry interval), and do not claim that a pesticide is currently registered based on that chunk.
+- Each chunk carries a source label describing its origin — use that label when attributing information to the farmer.
+- For government reports: name the report naturally (e.g. "According to the Final Rabi Estimates 2023-24 report…").
+- For manufacturer materials: name the brochure naturally (e.g. "Based on the 2025 potato crop-program brochure…").
+- For the dealer training manual: say "Based on the dealer training manual, page N…" — do NOT call it an official Government of Punjab publication.
+- Attribute each piece of information using the source_label provided with each chunk (e.g. "Based on [source_label]…"). Never misattribute a source.
+- NEVER use or mention internal metadata field names, status labels or flags in your reply to the farmer. Do NOT say phrases such as "requires current verification", "verification status", "publisher unverified", "pesticide_actionable", or "source_type". These are internal system fields — they must never appear in user-facing text.
+- For non-pesticide questions: simply cite the source naturally and share the information. No disclaimers about verification status.
+- When pesticide_actionable is false for a chunk, the chunk MUST NOT independently support actionable pesticide recommendations (no product names, doses, application rates, PHI or REI).
 - If current verified pesticide evidence is unavailable, clearly say that current pesticide and product guidance should be verified from an official or current source.
-- Attribute manual-derived knowledge plainly, for example "Based on the dealer training manual (publisher unverified), page 44…". Never label it as Punjab Government guidance.
 - Do not invent or add scouting procedures, pest counting methods, economic thresholds, weather conditions, beneficial insect advice, crop-stage treatment rules, treatment timing, pesticide or fungicide names, active ingredients, rates or doses, or PHI/REI unless they are explicitly present in the retrieved context AND allowed by its pesticide_actionable value.
-- When the retrieved evidence is insufficient for part of the question, say: "The retrieved sources do not contain enough verified information to answer that part safely." Then ask the farmer for relevant observations or recommend checking a current official source.
-- If NO retrieved chunks are relevant at all, you may answer from general agricultural knowledge, but the whole answer must begin with: "General guidance — not verified from ZarratAI's retrieved sources:"
+- When the retrieved evidence is insufficient for part of the question, say: "The retrieved sources do not contain enough information to answer that part safely." Then ask the farmer for relevant observations or recommend checking a current official source.
+- If NO retrieved chunks are relevant at all, you may answer from general agricultural knowledge, but the whole answer must begin with: "General guidance — not from ZarratAI's retrieved sources:"
 
 Pesticide and treatment questions — whenever retrieved chunks exist and their pesticide_actionable is false, these rules take precedence over the general-knowledge fallback above:
 - Do NOT provide any pesticide, product, active ingredient, dose, application rate, PHI or REI.
@@ -125,14 +129,14 @@ export async function generateAssistantReply(options: {
   // Ground the reply: retrieve knowledge relevant to the latest user
   // message BEFORE calling Gemini. Best-effort by design — a retrieval
   // failure never breaks the chat, it just continues without context.
-  const knowledge = await retrieveKnowledgeForReply(
+  const { chunks, documents } = await retrieveKnowledgeForReply(
     options.farm,
     options.history
   );
 
   try {
     const text = await generateGeminiText({
-      systemInstruction: buildSystemInstruction(options.farm, knowledge),
+      systemInstruction: buildSystemInstruction(options.farm, chunks, documents),
       turns,
     });
     return { text };
@@ -189,7 +193,8 @@ export async function analyzeCropImage(options: {
  */
 function buildSystemInstruction(
   farm: Farm,
-  knowledge: MatchedKnowledgeChunk[] | null
+  chunks: MatchedKnowledgeChunk[] | null,
+  documents: KnowledgeDocumentMeta[] | null
 ): string {
   const sections = [
     SYSTEM_PROMPT,
@@ -197,8 +202,8 @@ function buildSystemInstruction(
     buildFarmContextLines(farm).join("\n"),
   ];
 
-  if (knowledge && knowledge.length > 0) {
-    sections.push(buildKnowledgeSection(knowledge));
+  if (chunks && chunks.length > 0) {
+    sections.push(buildKnowledgeSection(chunks, documents ?? []));
   }
 
   return sections.join("\n\n");
@@ -218,29 +223,100 @@ function buildFarmContextLines(farm: Farm): string[] {
 }
 
 /**
+ * Supported crop names for deterministic mention detection.
+ *
+ * Each entry is one crop as stored in knowledge_chunks.crop, paired with
+ * every alias a farmer might type. Longer aliases are tested first so
+ * "sugarcane" matches before "cane". The matching regex uses word
+ * boundaries and is case-insensitive, so "potato" in "my potato crop"
+ * matches but "potatoe" does not.
+ *
+ * This is intentionally a simple keyword scanner — no AI call, no NLP
+ * library. Extend the list when new crops are ingested.
+ */
+const CROP_DETECTION_ALIASES: readonly { crop: string; aliases: readonly string[] }[] = [
+  { crop: "wheat", aliases: ["wheat", "gehun", "genhu"] },
+  { crop: "rice", aliases: ["rice", "paddy", "chawal", "dhaan"] },
+  { crop: "potato", aliases: ["potatoes", "potato", "aloo", "aaloo"] },
+  { crop: "sugarcane", aliases: ["sugar cane", "sugarcane", "ganna"] },
+  { crop: "cotton", aliases: ["cotton", "kapas"] },
+  { crop: "maize", aliases: ["maize", "corn", "makai", "makka"] },
+  { crop: "tomato", aliases: ["tomatoes", "tomato", "tamatar"] },
+];
+
+/**
+ * Scans text for an explicitly mentioned crop. Returns the first match
+ * (aliases are checked in declaration order — list the most specific or
+ * most common crops first). Returns null when no known crop name is
+ * found.
+ */
+function detectCropInText(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const { crop, aliases } of CROP_DETECTION_ALIASES) {
+    // Sort aliases longest-first so "sugar cane" beats "cane".
+    const sorted = [...aliases].sort((a, b) => b.length - a.length);
+    const pattern = new RegExp(
+      sorted.map((a) => `\\b${a.replace(/\s+/g, "\\s+")}\\b`).join("|"),
+      "i",
+    );
+    if (pattern.test(lower)) {
+      return crop;
+    }
+  }
+  return null;
+}
+
+/**
  * Retrieves up to KNOWLEDGE_MATCH_COUNT knowledge chunks relevant to the
- * latest user message, filtered by the selected farm's crop when it is
- * set. Server-side only. Returns null when retrieval cannot run so the
- * reply continues without RAG context instead of failing the chat.
+ * latest user message. The crop filter is resolved as follows:
+ *
+ *   1. If the user's latest message explicitly mentions a known crop
+ *      (e.g. "potato", "sugarcane", "rice"), that crop is used.
+ *   2. Otherwise the selected farm's crop is used (the current default).
+ *
+ * This lets the farmer ask about a different crop without changing
+ * their selected farm. Server-side only. Returns null when retrieval
+ * cannot run so the reply continues without RAG context instead of
+ * failing the chat.
  */
 async function retrieveKnowledgeForReply(
   farm: Farm,
   history: ConsultationMessage[]
-): Promise<MatchedKnowledgeChunk[] | null> {
+): Promise<{
+  chunks: MatchedKnowledgeChunk[] | null;
+  documents: KnowledgeDocumentMeta[] | null;
+}> {
   const query = latestUserMessageText(history);
   if (!query) {
-    return null;
+    return { chunks: null, documents: null };
   }
 
   try {
+    // Resolve the crop filter: explicit mention in the message takes
+    // priority over the selected farm's crop.
+    const mentionedCrop = detectCropInText(query);
+    const retrievalCrop = mentionedCrop ?? (farm.crop.trim() || null);
+
     // 768-dim Gemini embedding via the shared knowledge helper, then the
     // authenticated SECURITY DEFINER match_knowledge_chunks RPC.
     const embedding = await generateKnowledgeEmbedding(query);
-    return await searchKnowledgeChunks({
+    const chunks = await searchKnowledgeChunks({
       queryEmbedding: embedding,
       matchCount: KNOWLEDGE_MATCH_COUNT,
-      crop: farm.crop.trim() || null,
+      crop: retrievalCrop,
     });
+
+    // Fetch document metadata for source attribution (best-effort —
+    // a failure here degrades to generic attribution, never breaks
+    // the chat).
+    const documentIds = chunks
+      .map((c) => c.document_id)
+      .filter((id): id is string => id != null);
+    const documents = documentIds.length > 0
+      ? await getKnowledgeDocumentsByIds(documentIds)
+      : [];
+
+    return { chunks, documents };
   } catch (err) {
     // Network, embedding-API or database failure: sanitized server-side
     // log only — continue without retrieved context and never fabricate
@@ -249,7 +325,7 @@ async function retrieveKnowledgeForReply(
       "Assistant knowledge retrieval failed (continuing without it):",
       err instanceof Error ? err.message : err
     );
-    return null;
+    return { chunks: null, documents: null };
   }
 }
 
@@ -265,17 +341,54 @@ function latestUserMessageText(history: ConsultationMessage[]): string {
 }
 
 /**
- * Compact context block of retrieved chunks for the system instruction.
- * Carries exactly the grounded-evidence fields — content, crop, problem
- * type, problem name, source page, verification status and
- * pesticide_actionable. Embeddings and similarity internals are never
- * included and must never reach the farmer. All current knowledge chunks
- * originate from the dealer training manual (the only ingested source),
- * so the block states that provenance.
+ * Builds a human-readable source label from document metadata for
+ * attribution in the knowledge section. Each source type gets a
+ * distinct format so the model can correctly attribute answers.
  */
-function buildKnowledgeSection(chunks: MatchedKnowledgeChunk[]): string {
+function buildSourceLabel(doc: KnowledgeDocumentMeta | undefined, sourcePage: number | null): string {
+  if (!doc) {
+    return sourcePage ? `page ${sourcePage}` : "retrieved source";
+  }
+
+  const page = sourcePage ? `, page ${sourcePage}` : "";
+
+  switch (doc.source_type) {
+    case "training_manual":
+      return `dealer training manual${page}`;
+    case "government_report":
+      return `${doc.source_document}${page}`;
+    case "manufacturer": {
+      const date = doc.source_document.match(/\b(\d{4})\b/);
+      const prefix = date ? `${date[1]} ` : "";
+      return `${prefix}${doc.source_document}${page}`;
+    }
+    case "safety_poster":
+      return `${doc.source_document}${page}`;
+    default:
+      return `${doc.source_document}${page}`;
+  }
+}
+
+/**
+ * Compact context block of retrieved chunks for the system instruction.
+ * Each chunk carries a source_label derived from its parent document's
+ * metadata so the model can correctly attribute information to the
+ * actual source (training manual, government report, manufacturer
+ * brochure, or safety poster). Embeddings and similarity internals are
+ * never included.
+ */
+function buildKnowledgeSection(
+  chunks: MatchedKnowledgeChunk[],
+  documents: KnowledgeDocumentMeta[]
+): string {
+  const docMap = new Map(documents.map((d) => [d.id, d]));
+
   const entries = chunks.map((chunk, index) => {
+    const doc = chunk.document_id ? docMap.get(chunk.document_id) : undefined;
+    const sourceLabel = buildSourceLabel(doc, chunk.source_page);
+
     const meta = [
+      `source: ${sourceLabel}`,
       `crop: ${chunk.crop ?? "unknown"}`,
       `problem_name: ${chunk.problem_name ?? "unknown"}`,
       `problem_type: ${chunk.problem_type ?? "unknown"}`,
@@ -292,7 +405,7 @@ function buildKnowledgeSection(chunks: MatchedKnowledgeChunk[]): string {
   });
 
   return [
-    "Retrieved agricultural knowledge (from the dealer training manual — publisher unverified; manual-derived supporting information, not verified current guidance):",
+    "Retrieved agricultural knowledge (supporting evidence, not verified current guidance — attribute each chunk using its source label):",
     entries.join("\n\n"),
   ].join("\n\n");
 }

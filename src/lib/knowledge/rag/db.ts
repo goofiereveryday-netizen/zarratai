@@ -525,7 +525,66 @@ export async function findDuplicateChunk(
 }
 
 // ---------------------------------------------------------------------------
-// D. Semantic search (existing match_knowledge_chunks RPC)
+// D. Document metadata lookup (SECURITY DEFINER RPC for source attribution)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lightweight document metadata for source attribution. Retrieved via the
+ * SECURITY DEFINER get_knowledge_document_metadata RPC — no direct table
+ * grants needed.
+ */
+export type KnowledgeDocumentMeta = {
+  id: string;
+  source_document: string;
+  source_type: string;
+  source_tier: number;
+  source_part: string | null;
+};
+
+/**
+ * Fetches lightweight document metadata for a set of document IDs via
+ * the SECURITY DEFINER get_knowledge_document_metadata RPC. Returns an
+ * empty array when no IDs are provided or the RPC is not yet deployed.
+ */
+export async function getKnowledgeDocumentsByIds(
+  ids: string[],
+): Promise<KnowledgeDocumentMeta[]> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(
+    "get_knowledge_document_metadata",
+    { document_ids: uniqueIds },
+  );
+
+  if (error) {
+    // RPC may not be deployed yet — log server-side and degrade
+    // gracefully. The caller falls back to the generic attribution.
+    console.warn(
+      "Knowledge document metadata lookup failed (continuing without it):",
+      error.message,
+    );
+    return [];
+  }
+
+  return (Array.isArray(data) ? data : []).map(
+    (row: Record<string, unknown>) => ({
+      id: typeof row.id === "string" ? row.id : "",
+      source_document:
+        typeof row.source_document === "string" ? row.source_document : "",
+      source_type:
+        typeof row.source_type === "string" ? row.source_type : "",
+      source_tier:
+        typeof row.source_tier === "number" ? row.source_tier : 0,
+      source_part:
+        typeof row.source_part === "string" ? row.source_part : null,
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// E. Semantic search (existing match_knowledge_chunks RPC)
 // ---------------------------------------------------------------------------
 
 /**

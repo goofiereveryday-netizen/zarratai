@@ -111,3 +111,47 @@ grant execute on function public.match_knowledge_chunks(extensions.vector(768), 
 
 revoke all on public.knowledge_documents, public.knowledge_chunks
   from public, anon, authenticated;
+
+-- STEP 4 — Document metadata lookup for source attribution.
+--
+-- The assistant needs to know which source document each retrieved chunk
+-- came from (e.g. "dealer training manual", "government report",
+-- "manufacturer brochure") so it can attribute answers correctly.
+--
+-- This SECURITY DEFINER function returns ONLY safe metadata columns from
+-- knowledge_documents — no embedding, no chunk content. It does NOT
+-- require any direct table grants on knowledge_documents; the function
+-- itself runs as postgres.
+--
+-- EXECUTE is granted to authenticated only, matching the retrieval RPC.
+
+create or replace function public.get_knowledge_document_metadata(
+  document_ids uuid[]
+)
+returns table(
+  id uuid,
+  source_document text,
+  source_type text,
+  source_tier int,
+  source_part text
+)
+language sql
+stable
+security definer
+set search_path = pg_catalog, extensions
+as $$
+  select
+    public.knowledge_documents.id,
+    public.knowledge_documents.source_document,
+    public.knowledge_documents.source_type,
+    public.knowledge_documents.source_tier,
+    public.knowledge_documents.source_part
+  from public.knowledge_documents
+  where public.knowledge_documents.id = any(document_ids);
+$$;
+
+revoke execute on function public.get_knowledge_document_metadata(uuid[])
+  from public, anon;
+
+grant execute on function public.get_knowledge_document_metadata(uuid[])
+  to authenticated;
