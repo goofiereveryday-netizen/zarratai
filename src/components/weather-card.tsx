@@ -13,11 +13,14 @@ export async function WeatherCard({
   district,
   tehsil,
   showForecastLink = true,
+  showForecast = true,
 }: {
   district: string;
   tehsil: string;
   /** Shows the "View forecast" link to /weather; hidden on the page itself. */
   showForecastLink?: boolean;
+  /** Shows the multi-day forecast list; hide for today-only summaries. */
+  showForecast?: boolean;
 }) {
   const weather = await getFarmWeather(district, tehsil);
 
@@ -83,27 +86,29 @@ export async function WeatherCard({
         chance today {todayRainLabel}
       </p>
 
-      <ul className="mt-3 border-t border-forest-floor/10">
-        {weather.forecast.map((day, index) => (
-          <li
-            key={day.date}
-            className="flex items-center justify-between gap-2 border-b border-forest-floor/10 py-1.5 text-sm last:border-b-0"
-          >
-            <span className="w-14 shrink-0 font-medium text-forest-floor">
-              {forecastDayLabel(day, index)}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-forest-floor/80">
-              {day.condition}
-            </span>
-            <span className="shrink-0 text-deep-moss">
-              {day.minTempC}–{day.maxTempC}°C
-            </span>
-            <span className="w-12 shrink-0 text-right text-forest-floor/60">
-              {day.rainChancePercent == null ? "—" : `${day.rainChancePercent}%`}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {showForecast && (
+        <ul className="mt-3 border-t border-forest-floor/10">
+          {weather.forecast.map((day, index) => (
+            <li
+              key={day.date}
+              className="flex items-center justify-between gap-2 border-b border-forest-floor/10 py-1.5 text-sm last:border-b-0"
+            >
+              <span className="w-14 shrink-0 font-medium text-forest-floor">
+                {forecastDayLabel(day, index)}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-forest-floor/80">
+                {day.condition}
+              </span>
+              <span className="shrink-0 text-deep-moss">
+                {day.minTempC}–{day.maxTempC}°C
+              </span>
+              <span className="w-12 shrink-0 text-right text-forest-floor/60">
+                {day.rainChancePercent == null ? "—" : `${day.rainChancePercent}%`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <p className="mt-2 text-xs text-forest-floor/50">
         Weather data: Open-Meteo

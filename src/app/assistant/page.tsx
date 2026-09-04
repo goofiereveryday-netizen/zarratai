@@ -19,6 +19,7 @@ export default async function AssistantPage(
   const searchParams = await props.searchParams;
   const consultationId =
     typeof searchParams?.c === "string" ? searchParams.c : null;
+  const scanMode = searchParams?.scan === "1";
 
   // The assistant is only useful for signed-in users; send everyone else
   // to the login page first.
@@ -96,7 +97,7 @@ export default async function AssistantPage(
               </p>
             </section>
 
-            <ConsultationFlow farmId={selectedFarm.id} />
+            <ConsultationFlow farmId={selectedFarm.id} scanMode={scanMode} />
           </>
         ) : (
           <NoFarmSelected />
@@ -247,7 +248,13 @@ function ReadOnlyConsultation({
  * Keyed on the farm id so switching farms loads the other farm's
  * conversation.
  */
-async function ConsultationFlow({ farmId }: { farmId: string }) {
+async function ConsultationFlow({
+  farmId,
+  scanMode,
+}: {
+  farmId: string;
+  scanMode: boolean;
+}) {
   const consultation = await getActiveConsultation(farmId);
   const messages = consultation
     ? await getConsultationMessages(consultation.id)
@@ -259,6 +266,7 @@ async function ConsultationFlow({ farmId }: { farmId: string }) {
         key={farmId}
         consultation={consultation}
         messages={messages}
+        scanMode={scanMode}
       />
     </div>
   );

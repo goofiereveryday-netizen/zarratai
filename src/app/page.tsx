@@ -75,6 +75,7 @@ export default async function Home() {
                 district={selectedFarm.district}
                 tehsil={selectedFarm.tehsil}
                 showForecastLink={false}
+                showForecast={false}
               />
             </Suspense>
           </section>
@@ -107,7 +108,7 @@ export default async function Home() {
             in the photo.
           </p>
           <Link
-            href="/assistant"
+            href="/assistant?scan=1"
             className="group flex w-full items-center justify-center gap-3 rounded-xl border-2 border-olive-branch px-6 py-4 text-base font-semibold text-olive-branch shadow-sm transition-colors hover:bg-olive-branch/5 focus-visible:outline-citron-beam md:max-w-md"
           >
             <ScanIcon />
