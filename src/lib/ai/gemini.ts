@@ -43,22 +43,6 @@ const PER_ATTEMPT_TIMEOUT_MS = 15_000;
 /** Brief pause before the next attempt, giving transient spikes time to clear. */
 const RETRY_DELAY_MS = 750;
 
-/**
- * DEV-ONLY transient-failure simulator.
- *
- * When set in .env.local to a positive integer (e.g. "1" or "2"), the first N
- * Gemini attempts inside generateGeminiText return a fake 503 before any
- * network call, forcing the retry/fallback path to exercise. The counter
- * resets per call so concurrent requests are independent.
- *
- * Guarded by NODE_ENV — in production this is always 0 regardless of the
- * env var. Remove the constant and the single check site to delete this.
- */
-const SIMULATE_FAIL_COUNT =
-  process.env.NODE_ENV !== "production"
-    ? Number(process.env.GEMINI_SIMULATE_FAIL_COUNT ?? 0)
-    : 0;
-
 /** HTTP status codes considered transient (worth retrying). */
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -229,35 +213,17 @@ export async function generateGeminiText(options: {
   ] as const;
 
   let lastError: GeminiError | null = null;
-  let simulatedFailures = 0;
 
   for (let i = 0; i < attempts.length; i++) {
-    const { model, label } = attempts[i];
+    const { model } = attempts[i];
 
     if (i > 0) {
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      console.log(`Gemini ${label}: attempting with ${model}.`);
     }
 
-    let result: AttemptResult;
-    if (simulatedFailures < SIMULATE_FAIL_COUNT) {
-      simulatedFailures++;
-      console.warn(
-        `Gemini SIMULATE: returning fake 503 for ${model} (failure ${simulatedFailures}/${SIMULATE_FAIL_COUNT}).`
-      );
-      result = {
-        ok: false,
-        transient: true,
-        error: new GeminiError("Gemini request failed with status 503."),
-      };
-    } else {
-      result = await attemptGenerateText({ model, apiKey, requestBody });
-    }
+    const result = await attemptGenerateText({ model, apiKey, requestBody });
 
     if (result.ok) {
-      if (i > 0) {
-        console.log(`Gemini ${label}: succeeded with ${model}.`);
-      }
       return result.text;
     }
 
