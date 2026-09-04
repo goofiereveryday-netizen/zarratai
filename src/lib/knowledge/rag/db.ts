@@ -484,12 +484,12 @@ type DuplicateKey = {
   content: string;
 };
 
-type DuplicateLookup =
+export type DuplicateLookup =
   | { kind: "duplicate"; existingChunkId: string }
   | { kind: "no-duplicate" }
   | { kind: "error"; message: string };
 
-async function findDuplicateChunk(
+export async function findDuplicateChunk(
   key: DuplicateKey,
   supabase?: SupabaseClient,
 ): Promise<DuplicateLookup> {

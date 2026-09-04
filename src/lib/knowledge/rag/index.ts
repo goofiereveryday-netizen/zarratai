@@ -22,6 +22,7 @@ export {
 export {
   createKnowledgeDocument,
   embedAndInsertKnowledgeChunk,
+  findDuplicateChunk,
   getOrCreateKnowledgeDocument,
   insertKnowledgeChunk,
   KnowledgeDbError,
@@ -35,6 +36,7 @@ export {
 
 export type {
   CreateKnowledgeDocumentInput,
+  DuplicateLookup,
   EmbedAndInsertOutcome,
   KnowledgeChunkInsertInput,
   KnowledgeChunkRow,
@@ -54,3 +56,17 @@ export type {
   ManualSeedFailure,
   ManualSeedIngestionSummary,
 } from "./ingest";
+
+export { ingestCuratedSeedRecords } from "./curated-ingest";
+
+export type {
+  CuratedSeedFailure,
+  CuratedSeedIngestionSummary,
+} from "./curated-ingest";
+
+export {
+  CURATED_SEED_BATCH,
+  CURATED_SEED_BATCH_COUNT,
+} from "./zarratai-curated-seed-batch";
+
+export type { CuratedSeedRecord } from "./zarratai-curated-seed-batch";
