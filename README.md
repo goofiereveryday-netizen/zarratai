@@ -137,7 +137,7 @@ The knowledge base is seeded through dev-only ingestion routes with `NODE_ENV` g
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/your-org/zarratai.git
+   git clone https://github.com/farrukhrahimsandhu/zarratai.git
    cd zarratai
    ```
 
