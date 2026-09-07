@@ -38,7 +38,7 @@ ZarratAI is designed to **never provide unverified actionable pesticide guidance
 
 - **Reduces speculative diagnoses.** When evidence is insufficient, the assistant says so clearly instead of guessing.
 - **No unverified pesticide recommendations.** Unless the retrieved knowledge explicitly supports an actionable recommendation — verified at the database tier with strict registration and verification gates — the model will not name pesticides, dosages, rates, PHI, or REI values.
-- **Source provenance on every claim.** Each piece of retrieved knowledge is attributed to its source (e.g., "Punjab Agriculture Department crop advisory", "dealer training manual, page 12") so the farmer knows where the advice came from.
+- **Retrieved evidence includes source provenance.** Each piece of retrieved knowledge is attributed to its source (e.g., "Punjab Agriculture Department crop advisory", "dealer training manual, page 12") so the farmer knows where the advice came from.
 - **Source hierarchy.** When multiple sources disagree or overlap, the system prioritises: (1) Punjab Agriculture Department, (2) manufacturer/label, (3) government training manuals, (4) commercial catalog.
 - **Hard grounding rule.** When retrieved chunks are provided, the assistant uses **only** facts from those chunks — no general-knowledge supplementation. When no chunks are relevant, the model begins with "General guidance — not from ZarratAI's retrieved sources:".
 - **Image analysis safety.** Crop photos are analyzed cautiously: what is visible, possible causes, what is unclear, what to observe next. No pesticide names, doses, or treatment instructions are derived from a photo.
