@@ -1,15 +1,22 @@
+"use client";
+
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { FarmForm } from "@/components/farm-form";
 import { ArrowLeftIcon } from "@/components/icons";
 import { createFarm } from "@/app/actions/farms";
-import { getCurrentUserProfile } from "@/lib/auth/profile";
+import { useAuth } from "@/lib/supabase/auth-context";
 
-export default async function NewFarmPage() {
-  const profile = await getCurrentUserProfile();
+export default function NewFarmPage() {
+  const { user } = useAuth();
+
+  const userName =
+    typeof user?.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
 
   return (
-    <AppShell userName={profile?.name}>
+    <AppShell userName={userName}>
       <div className="mx-auto w-full max-w-3xl">
         <Link
           href="/farms"

@@ -1,9 +1,31 @@
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createBrowserClient } from "@supabase/ssr";
+import {
+  getTauriAuthStorage,
+  isTauriRuntime,
+  TAURI_AUTH_STORAGE_KEY,
+} from "@/lib/supabase/tauri-auth";
+
+let tauriClient: ReturnType<typeof createSupabaseClient> | null = null;
 
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    { isSingleton: true }
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+
+  if (isTauriRuntime()) {
+    if (!tauriClient) {
+      tauriClient = createSupabaseClient(url, publishableKey, {
+        auth: {
+          storage: getTauriAuthStorage(),
+          storageKey: TAURI_AUTH_STORAGE_KEY,
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+        },
+      });
+    }
+    return tauriClient;
+  }
+
+  return createBrowserClient(url, publishableKey, { isSingleton: true });
 }

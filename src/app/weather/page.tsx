@@ -1,23 +1,32 @@
-import { Suspense } from "react";
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { FarmIcon } from "@/components/icons";
 import { WeatherCard } from "@/components/weather-card";
-import { getSelectedFarm } from "@/lib/farms";
-import { getCurrentUserProfile } from "@/lib/auth/profile";
+import { getSelectedFarm, type Farm } from "@/lib/farms";
+import { useAuth } from "@/lib/supabase/auth-context";
 
-/**
- * Weather page — shows current conditions and the short forecast for the
- * currently selected crop's location.
- */
-export default async function WeatherPage() {
-  const [selectedFarm, profile] = await Promise.all([
-    getSelectedFarm(),
-    getCurrentUserProfile(),
-  ]);
+export default function WeatherPage() {
+  const { user } = useAuth();
+  const [selectedFarm, setSelectedFarm] = useState<Farm | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getSelectedFarm().then((farm) => {
+      setSelectedFarm(farm);
+      setLoading(false);
+    });
+  }, []);
+
+  const userName =
+    typeof user?.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
 
   return (
-    <AppShell userName={profile?.name}>
+    <AppShell userName={userName}>
       <div className="mx-auto w-full max-w-3xl">
         <h1 className="text-2xl font-bold tracking-tight text-deep-moss">
           Weather
@@ -26,7 +35,11 @@ export default async function WeatherPage() {
           Current conditions and the short forecast for your selected crop.
         </p>
 
-        {!selectedFarm ? (
+        {loading ? (
+          <div className="mt-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3">
+            <p className="text-sm text-forest-floor/60">Loading…</p>
+          </div>
+        ) : !selectedFarm ? (
           <section className="mt-6 rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-12 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-olive-branch/10 text-olive-branch">
               <FarmIcon />
@@ -69,21 +82,11 @@ export default async function WeatherPage() {
               </p>
             </section>
 
-            <Suspense
-              fallback={
-                <div className="mb-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3">
-                  <p className="text-sm text-forest-floor/60">
-                    Loading weather…
-                  </p>
-                </div>
-              }
-            >
-              <WeatherCard
-                district={selectedFarm.district}
-                tehsil={selectedFarm.tehsil}
-                showForecastLink={false}
-              />
-            </Suspense>
+            <WeatherCard
+              district={selectedFarm.district}
+              tehsil={selectedFarm.tehsil}
+              showForecastLink={false}
+            />
           </>
         )}
       </div>

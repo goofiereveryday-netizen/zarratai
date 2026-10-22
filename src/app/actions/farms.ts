@@ -1,17 +1,20 @@
-"use server";
-
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import {
+  deleteLocalRecord,
+  getLocalFarm,
+  getLocalFarms,
+  saveLocalRecord,
+  selectLocalFarm,
+} from "@/lib/offline/database";
+import { getOfflineUserId, isNetworkAvailable } from "@/lib/offline/identity";
+import { syncUserData } from "@/lib/offline/sync";
+import type { Farm } from "@/lib/farms";
 
 export type FarmFieldErrors = Partial<
   Record<"name" | "district" | "tehsil" | "area" | "crop", string>
 >;
 
 export type FarmFormState = {
-  /** General error shown above the submit button. */
   error?: string;
-  /** Per-field validation errors. */
   errors?: FarmFieldErrors;
 };
 
@@ -31,36 +34,16 @@ type FarmFormValues = {
   notes: string | null;
 };
 
-/**
- * Returns the signed-in user's Supabase client and id.
- * Redirects to /login when there is no session — server actions are public
- * entry points, so every action re-checks authentication.
- */
-async function getAuthContext() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  return { supabase, userId: user.id };
-}
-
 function readOptional(formData: FormData, key: string): string | null {
   const value = String(formData.get(key) ?? "").trim();
   return value.length > 0 ? value : null;
 }
 
-/** Validates the farm form. Area unit is fixed to acres for this UI. */
 function validateFarmForm(formData: FormData): {
   values: FarmFormValues | null;
   errors?: FarmFieldErrors;
 } {
   const errors: FarmFieldErrors = {};
-
   const name = String(formData.get("name") ?? "").trim();
   const district = String(formData.get("district") ?? "").trim();
   const tehsil = String(formData.get("tehsil") ?? "").trim();
@@ -82,10 +65,7 @@ function validateFarmForm(formData: FormData): {
     }
   }
 
-  if (Object.keys(errors).length > 0) {
-    return { values: null, errors };
-  }
-
+  if (Object.keys(errors).length > 0) return { values: null, errors };
   return {
     values: {
       name,
@@ -101,25 +81,40 @@ function validateFarmForm(formData: FormData): {
   };
 }
 
+async function getUserIdOrRedirect(): Promise<string | null> {
+  const userId = await getOfflineUserId();
+  if (!userId) window.location.href = "/login";
+  return userId;
+}
+
+function requestSync(userId: string): void {
+  if (isNetworkAvailable()) {
+    void syncUserData(userId).catch((error) => {
+      console.warn("Farm changes remain queued for sync:", error);
+    });
+  }
+}
+
 export async function createFarm(
   _state: FarmFormState,
-  formData: FormData
+  formData: FormData,
 ): Promise<FarmFormState> {
-  const { supabase, userId } = await getAuthContext();
+  const userId = await getUserIdOrRedirect();
+  if (!userId) return {};
 
   const { values, errors } = validateFarmForm(formData);
-  if (!values) {
-    return { errors };
+  if (!values) return { errors };
+
+  if (isNetworkAvailable()) {
+    try {
+      await syncUserData(userId);
+    } catch {
+      // The local-first create remains available even if the refresh fails.
+    }
   }
-
-  // The user's first farm is selected automatically.
-  const { count, error: countError } = await supabase
-    .from("farms")
-    .select("id", { count: "exact", head: true });
-  const isFirstFarm = !countError && (count ?? 0) === 0;
-
+  const existingFarms = await getLocalFarms(userId);
   const now = new Date().toISOString();
-  const { error } = await supabase.from("farms").insert({
+  const farm: Farm = {
     id: crypto.randomUUID(),
     user_id: userId,
     name: values.name,
@@ -132,154 +127,78 @@ export async function createFarm(
     crop_stage: values.crop_stage,
     irrigation: values.irrigation,
     notes: values.notes,
-    is_selected: isFirstFarm,
+    is_selected: existingFarms.length === 0,
     created_at: now,
     updated_at: now,
-  });
+  };
 
-  if (error) {
-    return { error: "Could not add the crop. Please try again." };
-  }
-
-  revalidatePath("/farms");
-  revalidatePath("/");
-  redirect("/farms");
+  await saveLocalRecord("farms", farm);
+  requestSync(userId);
+  window.location.href = "/farms";
+  return {};
 }
 
 export async function updateFarm(
   farmId: string,
   _state: FarmFormState,
-  formData: FormData
+  formData: FormData,
 ): Promise<FarmFormState> {
-  const { supabase } = await getAuthContext();
-
+  const userId = await getUserIdOrRedirect();
+  if (!userId) return {};
   const { values, errors } = validateFarmForm(formData);
-  if (!values) {
-    return { errors };
-  }
+  if (!values) return { errors };
 
-  // The .select() check verifies a row was actually updated: RLS blocks
-  // updates to other users' farms, which would otherwise be a silent no-op.
-  const { data, error } = await supabase
-    .from("farms")
-    .update({
-      name: values.name,
-      district: values.district,
-      tehsil: values.tehsil,
-      area: values.area,
-      area_unit: "acre",
-      crop: values.crop,
-      variety: values.variety,
-      crop_stage: values.crop_stage,
-      irrigation: values.irrigation,
-      notes: values.notes,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", farmId)
-    .select("id")
-    .maybeSingle();
-
-  if (error) {
-    return { error: "Could not save changes. Please try again." };
+  let existing = await getLocalFarm(userId, farmId);
+  if (!existing && isNetworkAvailable()) {
+    await syncUserData(userId);
+    existing = await getLocalFarm(userId, farmId);
   }
-  if (!data) {
-    return { error: "Farm not found." };
-  }
+  if (!existing) return { error: "Farm not found." };
 
-  revalidatePath("/farms");
-  revalidatePath("/");
-  redirect("/farms");
+  const farm: Farm = {
+    ...existing,
+    ...values,
+    area_unit: "acre",
+    updated_at: new Date().toISOString(),
+  };
+  await saveLocalRecord("farms", farm);
+  requestSync(userId);
+  window.location.href = "/farms";
+  return {};
 }
 
 export async function deleteFarm(farmId: string): Promise<FarmActionResult> {
-  const { supabase } = await getAuthContext();
+  const userId = await getOfflineUserId();
+  if (!userId) return { error: "Not authenticated." };
 
-  // Fetch first (RLS only returns the user's own farm) so we know whether
-  // the farm being deleted is the selected one.
-  const { data: farm, error: fetchError } = await supabase
-    .from("farms")
-    .select("id, is_selected")
-    .eq("id", farmId)
-    .maybeSingle();
-
-  if (fetchError) {
-    return { error: "Could not delete the crop. Please try again." };
+  let farm = await getLocalFarm(userId, farmId);
+  if (!farm && isNetworkAvailable()) {
+    await syncUserData(userId);
+    farm = await getLocalFarm(userId, farmId);
   }
-  if (!farm) {
-    return { error: "Crop not found." };
-  }
+  if (!farm) return { error: "Crop not found." };
 
-  const { error } = await supabase.from("farms").delete().eq("id", farmId);
-  if (error) {
-    return { error: "Could not delete the crop. Please try again." };
-  }
-
-  // If the selected farm was deleted, keep exactly one farm selected by
-  // promoting the earliest remaining one.
+  await deleteLocalRecord("farms", userId, farmId);
   if (farm.is_selected) {
-    const { data: nextFarm } = await supabase
-      .from("farms")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (nextFarm) {
-      await supabase
-        .from("farms")
-        .update({ is_selected: true, updated_at: new Date().toISOString() })
-        .eq("id", nextFarm.id);
-    }
+    const nextFarm = (await getLocalFarms(userId))[0];
+    if (nextFarm) await selectLocalFarm(userId, nextFarm.id);
   }
-
-  revalidatePath("/farms");
-  revalidatePath("/");
+  requestSync(userId);
   return {};
 }
 
 export async function selectFarm(farmId: string): Promise<FarmActionResult> {
-  const { supabase, userId } = await getAuthContext();
+  const userId = await getOfflineUserId();
+  if (!userId) return { error: "Not authenticated." };
 
-  // Verify ownership before mutating anything, so a bad id never leaves the
-  // user without a selected farm.
-  const { data: farm, error: fetchError } = await supabase
-    .from("farms")
-    .select("id")
-    .eq("id", farmId)
-    .maybeSingle();
-
-  if (fetchError) {
-    return { error: "Could not select the farm. Please try again." };
+  let farm = await getLocalFarm(userId, farmId);
+  if (!farm && isNetworkAvailable()) {
+    await syncUserData(userId);
+    farm = await getLocalFarm(userId, farmId);
   }
-  if (!farm) {
-    return { error: "Farm not found." };
-  }
+  if (!farm) return { error: "Farm not found." };
 
-  const now = new Date().toISOString();
-
-  // Unselect the user's other farms, then select this one. Both updates are
-  // scoped to the signed-in user; RLS blocks rows owned by anyone else.
-  const { error: unselectError } = await supabase
-    .from("farms")
-    .update({ is_selected: false, updated_at: now })
-    .eq("user_id", userId)
-    .eq("is_selected", true);
-
-  if (unselectError) {
-    return { error: "Could not select the farm. Please try again." };
-  }
-
-  const { error: selectError } = await supabase
-    .from("farms")
-    .update({ is_selected: true, updated_at: now })
-    .eq("id", farmId)
-    .eq("user_id", userId);
-
-  if (selectError) {
-    return { error: "Could not select the farm. Please try again." };
-  }
-
-  revalidatePath("/farms");
-  revalidatePath("/");
+  await selectLocalFarm(userId, farmId);
+  requestSync(userId);
   return {};
 }

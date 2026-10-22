@@ -1,13 +1,20 @@
+"use client";
+
+import { useAuth } from "@/lib/supabase/auth-context";
 import { AppShell } from "@/components/app-shell";
-import { getCurrentUserProfile } from "@/lib/auth/profile";
 import { SettingsProfileEditor } from "@/app/settings/settings-profile-editor";
 import Link from "next/link";
 
-export default async function ProfilePage() {
-  const profile = await getCurrentUserProfile();
+export default function ProfilePage() {
+  const { user } = useAuth();
+  const metadata = user?.user_metadata ?? {};
+  const name =
+    typeof metadata.full_name === "string" ? metadata.full_name : "";
+  const phone =
+    typeof metadata.phone_number === "string" ? metadata.phone_number : "";
 
   return (
-    <AppShell userName={profile?.name}>
+    <AppShell>
       <div className="mx-auto w-full max-w-3xl">
         <div className="mb-8">
           <h1 className="text-2xl font-display font-semibold tracking-tight text-forest-floor">
@@ -23,10 +30,7 @@ export default async function ProfilePage() {
             Personal details
           </h2>
           <div className="mt-3">
-            <SettingsProfileEditor
-              initialName={profile?.name ?? ""}
-              initialPhone={profile?.phone ?? ""}
-            />
+            <SettingsProfileEditor initialName={name} initialPhone={phone} />
           </div>
         </section>
 

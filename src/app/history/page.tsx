@@ -1,37 +1,35 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { HistoryIcon, ChatIcon, FarmIcon } from "@/components/icons";
-import { createClient } from "@/lib/supabase/server";
-import { getUserConsultations } from "@/lib/consultations";
-import { getFarms } from "@/lib/farms";
+import { getUserConsultations, type Consultation } from "@/lib/consultations";
+import { getFarms, type Farm } from "@/lib/farms";
+import { useAuth } from "@/lib/supabase/auth-context";
 
-/**
- * Farm History page — lists the signed-in user's consultations,
- * newest first. Clicking a consultation opens its conversation
- * in the Assistant via /assistant?c=<consultationId>.
- */
-export default async function HistoryPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login");
-  }
+export default function HistoryPage() {
+  const { user } = useAuth();
+  const [consultations, setConsultations] = useState<Consultation[]>([]);
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [consultations, farms] = await Promise.all([
-    getUserConsultations(),
-    getFarms(),
-  ]);
+  useEffect(() => {
+    Promise.all([getUserConsultations(), getFarms()]).then(
+      ([consultationsResult, farmsResult]) => {
+        setConsultations(consultationsResult);
+        setFarms(farmsResult);
+        setLoading(false);
+      }
+    );
+  }, []);
 
-  // Build a farm-id → farm-name lookup so each history row can show
-  // the associated farm without an extra query per row.
-  const farmMap = new Map(farms.map((f) => [f.id, f.name]));
   const userName =
-    typeof user.user_metadata?.full_name === "string"
+    typeof user?.user_metadata?.full_name === "string"
       ? user.user_metadata.full_name
       : null;
+
+  const farmMap = new Map(farms.map((f) => [f.id, f.name]));
 
   return (
     <AppShell userName={userName}>
@@ -43,7 +41,11 @@ export default async function HistoryPage() {
           Your past consultations and their outcomes.
         </p>
 
-        {consultations.length === 0 ? (
+        {loading ? (
+          <div className="mt-6 rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-12 text-center">
+            <p className="text-sm text-forest-floor/60">Loading history…</p>
+          </div>
+        ) : consultations.length === 0 ? (
           <EmptyHistory />
         ) : (
           <ul className="mt-6 space-y-3">
@@ -89,7 +91,6 @@ export default async function HistoryPage() {
   );
 }
 
-/** Friendly empty state that guides the user to start a consultation. */
 function EmptyHistory() {
   return (
     <section className="mt-6 rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-12 text-center">
@@ -129,10 +130,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-/**
- * Formats an ISO timestamp into a short human-readable string.
- * Shows time only for today's entries, date only for older ones.
- */
 function formatDateTime(iso: string): string {
   const date = new Date(iso);
   const now = new Date();

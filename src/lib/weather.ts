@@ -1,10 +1,9 @@
+import { getWeatherCache, setWeatherCache } from "@/lib/offline/database";
+import { isNetworkAvailable } from "@/lib/offline/identity";
+
 const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 
-/** Places do not move, so a resolved place name stays cached for a day. */
-const GEOCODE_REVALIDATE_SECONDS = 60 * 60 * 24;
-/** Dashboard weather stays fresh enough for fifteen minutes. */
-const FORECAST_REVALIDATE_SECONDS = 60 * 15;
 const REQUEST_TIMEOUT_MS = 5000;
 const FORECAST_DAYS = 5;
 
@@ -21,12 +20,10 @@ export type DailyForecast = {
   minTempC: number;
   maxTempC: number;
   condition: string;
-  /** Maximum precipitation probability for the day, when the API reports one. */
   rainChancePercent: number | null;
 };
 
 export type FarmWeather = {
-  /** Name of the geocoded place the forecast belongs to. */
   locationName: string;
   current: CurrentWeather;
   forecast: DailyForecast[];
@@ -61,7 +58,6 @@ type ForecastResponse = {
 
 const COMPASS_POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 
-/** Maps a WMO weather code to a short farmer-readable condition label. */
 function describeWeatherCode(code: number): string {
   if (code === 0) return "Clear";
   if (code === 1) return "Mainly clear";
@@ -83,7 +79,6 @@ function degreesToCompass(degrees: number): string {
   return COMPASS_POINTS[Math.round(degrees / 45) % 8];
 }
 
-/** Resolves a place name to coordinates inside Pakistan; null when not found. */
 async function geocodePlace(name: string): Promise<GeocodedPlace | null> {
   const params = new URLSearchParams({
     name,
@@ -95,7 +90,6 @@ async function geocodePlace(name: string): Promise<GeocodedPlace | null> {
 
   const response = await fetch(`${GEOCODING_URL}?${params.toString()}`, {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    next: { revalidate: GEOCODE_REVALIDATE_SECONDS },
   });
 
   if (!response.ok) {
@@ -123,7 +117,6 @@ async function fetchForecast(place: GeocodedPlace): Promise<FarmWeather> {
 
   const response = await fetch(`${FORECAST_URL}?${params.toString()}`, {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    next: { revalidate: FORECAST_REVALIDATE_SECONDS },
   });
 
   if (!response.ok) {
@@ -187,11 +180,6 @@ async function fetchForecast(place: GeocodedPlace): Promise<FarmWeather> {
   };
 }
 
-/**
- * Current conditions plus a short daily forecast for a farm location. Tries
- * the tehsil first and falls back to the district; returns null when the
- * location cannot be resolved or the weather service fails.
- */
 export async function getFarmWeather(
   district: string,
   tehsil: string,
@@ -204,6 +192,17 @@ export async function getFarmWeather(
     return null;
   }
 
+  const cacheKey = `farm-weather:${candidates.map((name) => name.toLowerCase()).join("|")}`;
+  let cached: Awaited<ReturnType<typeof getWeatherCache<FarmWeather>>> = null;
+  try {
+    cached = await getWeatherCache<FarmWeather>(cacheKey);
+    if (cached && cached.expires_at > Date.now()) return cached.data;
+  } catch (error) {
+    console.warn("Could not read the local weather cache:", error);
+  }
+
+  if (!isNetworkAvailable()) return cached?.data ?? null;
+
   try {
     let place: GeocodedPlace | null = null;
     for (const candidate of candidates) {
@@ -215,12 +214,18 @@ export async function getFarmWeather(
     if (!place) {
       return null;
     }
-    return await fetchForecast(place);
+    const weather = await fetchForecast(place);
+    try {
+      await setWeatherCache(cacheKey, weather);
+    } catch (error) {
+      console.warn("Could not save the local weather cache:", error);
+    }
+    return weather;
   } catch (err) {
     console.error(
       "Farm weather unavailable:",
       err instanceof Error ? err.message : err,
     );
-    return null;
+    return cached?.data ?? null;
   }
 }

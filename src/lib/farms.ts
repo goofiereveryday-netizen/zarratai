@@ -1,9 +1,11 @@
-import { createClient } from "@/lib/supabase/server";
+import {
+  getLocalFarm,
+  getLocalFarms,
+  getLocalSelectedFarm,
+} from "@/lib/offline/database";
+import { getOfflineUserId, isNetworkAvailable } from "@/lib/offline/identity";
+import { syncUserData } from "@/lib/offline/sync";
 
-/**
- * A row of the public.farms table.
- * RLS guarantees queries only ever return farms owned by the signed-in user.
- */
 export type Farm = {
   id: string;
   user_id: string;
@@ -22,60 +24,58 @@ export type Farm = {
   updated_at: string | null;
 };
 
-/** Returns the user's farms, oldest first. Empty list on error. */
+function refreshInBackground(userId: string): void {
+  if (isNetworkAvailable()) {
+    void syncUserData(userId).catch((error) => {
+      console.warn("Background farm sync failed:", error);
+    });
+  }
+}
+
 export async function getFarms(): Promise<Farm[]> {
-  const supabase = await createClient();
+  const userId = await getOfflineUserId();
+  if (!userId) return [];
 
-  const { data, error } = await supabase
-    .from("farms")
-    .select("*")
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    console.error("Failed to load farms:", error.message);
-    return [];
+  let farms = await getLocalFarms(userId);
+  if (farms.length > 0) {
+    refreshInBackground(userId);
+    return farms;
   }
-
-  return (data ?? []) as Farm[];
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    farms = await getLocalFarms(userId);
+  }
+  return farms;
 }
 
-/**
- * Returns a single farm owned by the signed-in user, or null when the farm
- * does not exist or belongs to someone else (RLS hides other users' rows).
- */
 export async function getFarmById(id: string): Promise<Farm | null> {
-  const supabase = await createClient();
+  const userId = await getOfflineUserId();
+  if (!userId) return null;
 
-  const { data, error } = await supabase
-    .from("farms")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to load farm:", error.message);
-    return null;
+  let farm = await getLocalFarm(userId, id);
+  if (farm) {
+    refreshInBackground(userId);
+    return farm;
   }
-
-  return (data as Farm) ?? null;
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    farm = await getLocalFarm(userId, id);
+  }
+  return farm;
 }
 
-/** Returns the farm marked with is_selected, or null when none is selected. */
 export async function getSelectedFarm(): Promise<Farm | null> {
-  const supabase = await createClient();
+  const userId = await getOfflineUserId();
+  if (!userId) return null;
 
-  const { data, error } = await supabase
-    .from("farms")
-    .select("*")
-    .eq("is_selected", true)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to load selected farm:", error.message);
-    return null;
+  let farm = await getLocalSelectedFarm(userId);
+  if (farm) {
+    refreshInBackground(userId);
+    return farm;
   }
-
-  return (data as Farm) ?? null;
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    farm = await getLocalSelectedFarm(userId);
+  }
+  return farm;
 }

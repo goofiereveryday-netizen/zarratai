@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * The user's profile derived from Supabase auth metadata.
@@ -14,7 +14,7 @@ export type UserProfile = {
  * metadata, or null when no user is signed in. Server-side only.
  */
 export async function getCurrentUserProfile(): Promise<UserProfile | null> {
-  const supabase = await createClient();
+  const supabase = createClient();
   const { data, error } = await supabase.auth.getUser();
 
   if (error || !data.user) {
@@ -46,7 +46,7 @@ export async function updateUserName(
     return { error: "Name must be 100 characters or fewer." };
   }
 
-  const supabase = await createClient();
+  const supabase = createClient();
   const { error } = await supabase.auth.updateUser({
     data: { full_name: trimmed },
   });

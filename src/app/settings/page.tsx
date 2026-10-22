@@ -1,19 +1,38 @@
-import { AppShell } from "@/components/app-shell";
-import { getSelectedFarm } from "@/lib/farms";
-import { getCurrentUserProfile } from "@/lib/auth/profile";
-import { logout } from "@/app/actions/auth";
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { AppShell } from "@/components/app-shell";
 import { SettingsProfileEditor } from "./settings-profile-editor";
 import { SettingsLanguageSelector } from "./settings-language-selector";
+import { LogoutButton } from "@/components/logout-button";
+import { getSelectedFarm, type Farm } from "@/lib/farms";
+import { useAuth } from "@/lib/supabase/auth-context";
 
-export default async function SettingsPage() {
-  const [selectedFarm, profile] = await Promise.all([
-    getSelectedFarm(),
-    getCurrentUserProfile(),
-  ]);
+export default function SettingsPage() {
+  const { user } = useAuth();
+  const [selectedFarm, setSelectedFarm] = useState<Farm | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getSelectedFarm().then((farm) => {
+      setSelectedFarm(farm);
+      setLoading(false);
+    });
+  }, []);
+
+  const userName =
+    typeof user?.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
+
+  const phone =
+    typeof user?.user_metadata?.phone_number === "string"
+      ? user.user_metadata.phone_number
+      : "";
 
   return (
-    <AppShell userName={profile?.name}>
+    <AppShell userName={userName}>
       <div className="mx-auto w-full max-w-3xl">
         <div className="mb-8">
           <h1 className="text-2xl font-display font-semibold tracking-tight text-forest-floor">
@@ -31,18 +50,11 @@ export default async function SettingsPage() {
           </h2>
           <div className="mt-3 space-y-4">
             <SettingsProfileEditor
-              initialName={profile?.name ?? ""}
-              initialPhone={profile?.phone ?? ""}
+              initialName={userName ?? ""}
+              initialPhone={phone}
             />
             <div className="border-t border-sand pt-4">
-              <form action={logout}>
-                <button
-                  type="submit"
-                  className="rounded-lg border border-forest-floor/20 px-4 py-2 text-sm font-medium text-forest-floor transition-colors hover:bg-forest-floor/5"
-                >
-                  Sign out
-                </button>
-              </form>
+              <LogoutButton className="rounded-lg border border-forest-floor/20 px-4 py-2 text-sm font-medium text-forest-floor transition-colors hover:bg-forest-floor/5" />
             </div>
           </div>
         </section>
@@ -52,7 +64,9 @@ export default async function SettingsPage() {
           <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-forest-floor/50">
             Crop
           </h2>
-          {selectedFarm ? (
+          {loading ? (
+            <div className="mt-3 text-sm text-forest-floor/60">Loading…</div>
+          ) : selectedFarm ? (
             <div className="mt-3 space-y-1 text-sm">
               <p className="font-medium text-forest-floor">
                 {selectedFarm.name}

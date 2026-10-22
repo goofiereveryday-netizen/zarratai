@@ -1,18 +1,30 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { signup, type AuthFormState } from "@/app/actions/auth";
-
-const initialState: AuthFormState = {};
+import { signup } from "@/lib/auth/client-auth";
 
 export default function SignupPage() {
-  const [state, formAction, pending] = useActionState(signup, initialState);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPending(true);
+    setError(null);
+
+    const formData = new FormData(e.currentTarget);
+    const result = await signup({}, formData);
+
+    if (result.error) {
+      setError(result.error);
+      setPending(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm">
-        {/* Brand */}
         <div className="mb-8 text-center">
           <Link href="/" className="inline-flex items-center gap-2 text-xl font-bold text-deep-moss">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-olive-branch">
@@ -41,18 +53,16 @@ export default function SignupPage() {
           </p>
         </div>
 
-        {/* Error */}
-        {state?.error && (
+        {error && (
           <div
             className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
             role="alert"
           >
-            {state.error}
+            {error}
           </div>
         )}
 
-        {/* Form */}
-        <form action={formAction} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label
               htmlFor="name"

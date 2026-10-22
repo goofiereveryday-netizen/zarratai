@@ -1,0 +1,10 @@
+C:\Users\Shaheer\Documents\Qoder\2026-10-21\0958ce6a\zarratai\src-tauri\target\debug\deps\cargo_toml-b01cf6115b286891.d: C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\cargo_toml.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\afs.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\error.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\inheritable.rs
+
+C:\Users\Shaheer\Documents\Qoder\2026-10-21\0958ce6a\zarratai\src-tauri\target\debug\deps\libcargo_toml-b01cf6115b286891.rlib: C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\cargo_toml.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\afs.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\error.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\inheritable.rs
+
+C:\Users\Shaheer\Documents\Qoder\2026-10-21\0958ce6a\zarratai\src-tauri\target\debug\deps\libcargo_toml-b01cf6115b286891.rmeta: C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\cargo_toml.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\afs.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\error.rs C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\inheritable.rs
+
+C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\cargo_toml.rs:
+C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\afs.rs:
+C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\error.rs:
+C:\Users\Shaheer\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\cargo_toml-1.0.1\src\inheritable.rs:

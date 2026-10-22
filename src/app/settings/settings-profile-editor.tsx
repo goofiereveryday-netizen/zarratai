@@ -1,9 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { updateProfileName, type ProfileFormState } from "@/app/actions/auth";
-
-const initialState: ProfileFormState = {};
+import { useState } from "react";
+import { updateProfileName, type ProfileFormState } from "@/lib/auth/client-auth";
 
 export function SettingsProfileEditor({
   initialName,
@@ -13,25 +11,33 @@ export function SettingsProfileEditor({
   initialPhone: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [state, formAction, pending] = useActionState(
-    updateProfileName,
-    initialState
-  );
+  const [state, setState] = useState<ProfileFormState>({});
+  const [pending, setPending] = useState(false);
 
-  // Close the edit form on success
-  if (state.success && editing) {
-    setEditing(false);
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPending(true);
+    setState({});
+
+    const formData = new FormData(e.currentTarget);
+    const result = await updateProfileName({}, formData);
+
+    setState(result);
+    setPending(false);
+
+    if (result.success) {
+      setEditing(false);
+    }
   }
 
   return (
     <div className="space-y-3">
-      {/* Name */}
       <div>
         <label className="block text-xs font-medium text-forest-floor/60">
           Name
         </label>
         {editing ? (
-          <form action={formAction} className="mt-1 flex gap-2">
+          <form onSubmit={handleSubmit} className="mt-1 flex gap-2">
             <input
               name="name"
               type="text"
@@ -78,7 +84,6 @@ export function SettingsProfileEditor({
         )}
       </div>
 
-      {/* Phone (read-only) */}
       <div>
         <label className="block text-xs font-medium text-forest-floor/60">
           Mobile number

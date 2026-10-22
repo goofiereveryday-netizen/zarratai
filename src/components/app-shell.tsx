@@ -2,7 +2,9 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { logout } from "@/app/actions/auth";
+import { useAuth } from "@/lib/supabase/auth-context";
+import { SyncStatusBanner } from "@/components/offline/sync-status-banner";
+import { logout } from "@/lib/auth/client-auth";
 import {
   MenuIcon,
   CloseIcon,
@@ -45,10 +47,15 @@ export function AppShell({
   children: React.ReactNode;
   userName?: string | null;
 }) {
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
-  const displayName = userName?.trim() || "Farmer";
+  const authName =
+    typeof user?.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
+  const displayName = (userName ?? authName)?.trim() || "Farmer";
   const initial = displayName.charAt(0).toUpperCase();
 
   return (
@@ -133,14 +140,13 @@ export function AppShell({
                       Settings
                     </Link>
                     <div className="border-t border-forest-floor/10">
-                      <form action={logout}>
-                        <button
-                          type="submit"
-                          className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-700 transition-colors hover:bg-red-50"
-                        >
-                          Sign out
-                        </button>
-                      </form>
+                      <button
+                        type="button"
+                        onClick={() => { setProfileOpen(false); logout(); }}
+                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-700 transition-colors hover:bg-red-50"
+                      >
+                        Sign out
+                      </button>
                     </div>
                   </div>
                 </>
@@ -211,17 +217,18 @@ export function AppShell({
               Settings
             </Link>
 
-            <form action={logout}>
-              <button
-                type="submit"
-                className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-base font-medium text-wheat-cream/60 transition-colors hover:bg-forest-floor hover:text-wheat-cream"
-              >
-                Sign out
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-base font-medium text-wheat-cream/60 transition-colors hover:bg-forest-floor hover:text-wheat-cream"
+            >
+              Sign out
+            </button>
           </nav>
         )}
       </header>
+
+      <SyncStatusBanner />
 
       {/* Main content */}
       <main className="flex-1 px-4 py-6 md:px-6 md:py-8">{children}</main>

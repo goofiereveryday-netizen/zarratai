@@ -1,18 +1,32 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { FarmCard } from "@/components/farm-card";
 import { FarmIcon, PlusIcon } from "@/components/icons";
-import { getFarms } from "@/lib/farms";
-import { getCurrentUserProfile } from "@/lib/auth/profile";
+import { getFarms, type Farm } from "@/lib/farms";
+import { useAuth } from "@/lib/supabase/auth-context";
 
-export default async function FarmsPage() {
-  const [farms, profile] = await Promise.all([
-    getFarms(),
-    getCurrentUserProfile(),
-  ]);
+export default function FarmsPage() {
+  const { user } = useAuth();
+  const [farms, setFarms] = useState<Farm[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getFarms().then((result) => {
+      setFarms(result);
+      setLoading(false);
+    });
+  }, []);
+
+  const userName =
+    typeof user?.user_metadata?.full_name === "string"
+      ? user.user_metadata.full_name
+      : null;
 
   return (
-    <AppShell userName={profile?.name}>
+    <AppShell userName={userName}>
       <div className="mx-auto w-full max-w-3xl">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -34,7 +48,11 @@ export default async function FarmsPage() {
           )}
         </div>
 
-        {farms.length === 0 ? (
+        {loading ? (
+          <div className="rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-12 text-center">
+            <p className="text-sm text-forest-floor/60">Loading crops…</p>
+          </div>
+        ) : farms.length === 0 ? (
           <section className="rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-12 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-olive-branch/10 text-olive-branch">
               <FarmIcon />

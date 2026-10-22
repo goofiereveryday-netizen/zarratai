@@ -1,15 +1,11 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { WeatherIcon } from "@/components/icons";
-import { getFarmWeather, type DailyForecast } from "@/lib/weather";
+import { getFarmWeather, type DailyForecast, type FarmWeather } from "@/lib/weather";
 
-/**
- * Compact current-conditions and short-forecast card for the selected farm.
- * Async server component — renders behind its own Suspense boundary so the
- * rest of the page never waits on the weather service. Used on the dashboard
- * as a quick summary (with a "View forecast" link to /weather) and on the
- * Farm Weather page as the detailed view (link hidden).
- */
-export async function WeatherCard({
+export function WeatherCard({
   district,
   tehsil,
   showForecastLink = true,
@@ -17,12 +13,41 @@ export async function WeatherCard({
 }: {
   district: string;
   tehsil: string;
-  /** Shows the "View forecast" link to /weather; hidden on the page itself. */
   showForecastLink?: boolean;
-  /** Shows the multi-day forecast list; hide for today-only summaries. */
   showForecast?: boolean;
 }) {
-  const weather = await getFarmWeather(district, tehsil);
+  const [weather, setWeather] = useState<FarmWeather | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getFarmWeather(district, tehsil).then((result) => {
+      if (!cancelled) {
+        setWeather(result);
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [district, tehsil]);
+
+  if (loading) {
+    return (
+      <section
+        id="farm-weather"
+        aria-label="Farm weather"
+        className="mb-6 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3"
+      >
+        <div className="flex items-center gap-2 text-sm text-forest-floor">
+          <WeatherIcon />
+          <span className="font-medium">Farm Weather</span>
+        </div>
+        <p className="mt-2 text-sm text-forest-floor/60">Loading weather…</p>
+      </section>
+    );
+  }
 
   if (!weather) {
     return (
@@ -121,7 +146,6 @@ function forecastDayLabel(day: DailyForecast, index: number): string {
   if (index === 0) {
     return "Today";
   }
-  // Parsed at noon so the calendar date can never shift across time zones.
   return new Date(`${day.date}T12:00:00`).toLocaleDateString("en-US", {
     weekday: "short",
   });

@@ -1,9 +1,11 @@
+"use client";
+
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { ConsultationChat } from "@/components/consultation-chat";
 import { FarmIcon, ChatIcon } from "@/components/icons";
-import { createClient } from "@/lib/supabase/server";
 import { getSelectedFarm, getFarmById, type Farm } from "@/lib/farms";
 import {
   getActiveConsultation,
@@ -12,51 +14,92 @@ import {
   type Consultation,
   type ConsultationMessage,
 } from "@/lib/consultations";
+import { useAuth } from "@/lib/supabase/auth-context";
 
-export default async function AssistantPage(
-  props: PageProps<"/assistant">
-) {
-  const searchParams = await props.searchParams;
-  const consultationId =
-    typeof searchParams?.c === "string" ? searchParams.c : null;
-  const scanMode = searchParams?.scan === "1";
+function AssistantPageContent() {
+  const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const consultationId = searchParams.get("c");
+  const scanMode = searchParams.get("scan") === "1";
 
-  // The assistant is only useful for signed-in users; send everyone else
-  // to the login page first.
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login");
-  }
+  const [farm, setFarm] = useState<Farm | null>(null);
+  const [consultation, setConsultation] = useState<Consultation | null>(null);
+  const [messages, setMessages] = useState<ConsultationMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
   const userName =
-    typeof user.user_metadata?.full_name === "string"
+    typeof user?.user_metadata?.full_name === "string"
       ? user.user_metadata.full_name
       : null;
 
-  // When a specific consultation is requested (from Farm History),
-  // load it and its farm directly — bypassing the selected-farm lookup.
-  if (consultationId) {
-    const consultation = await getConsultationById(consultationId);
-    if (consultation) {
-      const farm = await getFarmById(consultation.farm_id);
-      const messages = await getConsultationMessages(consultation.id);
-      return (
-        <AppShell userName={userName}>
-          <AssistantContent
-            farm={farm}
-            consultation={consultation}
-            messages={messages}
-          />
-        </AppShell>
-      );
+  useEffect(() => {
+    async function loadData() {
+      if (consultationId) {
+        const consultationResult = await getConsultationById(consultationId);
+        if (consultationResult) {
+          const farmResult = await getFarmById(consultationResult.farm_id);
+          const messagesResult = await getConsultationMessages(consultationResult.id);
+          setFarm(farmResult);
+          setConsultation(consultationResult);
+          setMessages(messagesResult);
+        } else {
+          setNotFound(true);
+        }
+      } else {
+        const selectedFarm = await getSelectedFarm();
+        if (selectedFarm) {
+          setFarm(selectedFarm);
+          const activeConsultation = await getActiveConsultation(selectedFarm.id);
+          if (activeConsultation) {
+            const messagesResult = await getConsultationMessages(activeConsultation.id);
+            setConsultation(activeConsultation);
+            setMessages(messagesResult);
+          }
+        }
+      }
+      setLoading(false);
     }
-    // Consultation not found or RLS blocked — fall through to default.
+    loadData();
+  }, [consultationId]);
+
+  if (loading) {
+    return (
+      <AppShell userName={userName}>
+        <div className="mx-auto w-full max-w-3xl">
+          <p className="text-sm text-forest-floor/60">Loading…</p>
+        </div>
+      </AppShell>
+    );
   }
 
-  const selectedFarm = await getSelectedFarm();
+  if (consultationId && notFound) {
+    return (
+      <AppShell userName={userName}>
+        <div className="mx-auto w-full max-w-3xl">
+          <p className="text-sm text-forest-floor/60">Consultation not found.</p>
+          <Link
+            href="/assistant"
+            className="mt-3 inline-flex text-sm font-medium text-olive-branch underline-offset-3 hover:underline"
+          >
+            Back to Assistant
+          </Link>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (consultationId && consultation) {
+    return (
+      <AppShell userName={userName}>
+        <AssistantContent
+          farm={farm}
+          consultation={consultation}
+          messages={messages}
+        />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell userName={userName}>
@@ -68,10 +111,8 @@ export default async function AssistantPage(
           Describe the problem. Know what to do next.
         </p>
 
-        {selectedFarm ? (
+        {farm ? (
           <>
-            {/* Selected crop context — every consultation is saved
-                against this crop */}
             <section
               className="mt-4 rounded-lg border border-forest-floor/20 bg-wheat-cream-light px-4 py-3"
               aria-label="Selected crop"
@@ -80,7 +121,7 @@ export default async function AssistantPage(
                 <FarmIcon />
                 <span className="font-medium">Crop:</span>
                 <span className="truncate font-medium text-deep-moss">
-                  {selectedFarm.name}
+                  {farm.name}
                 </span>
                 <Link
                   href="/farms"
@@ -90,14 +131,19 @@ export default async function AssistantPage(
                 </Link>
               </div>
               <p className="mt-1 pl-7 text-sm text-forest-floor/70">
-                {selectedFarm.area} acre{selectedFarm.area === 1 ? "" : "s"} ·{" "}
-                {selectedFarm.crop}
-                {selectedFarm.variety ? ` (${selectedFarm.variety})` : ""} ·{" "}
-                {selectedFarm.district}, {selectedFarm.tehsil}
+                {farm.area} acre{farm.area === 1 ? "" : "s"} ·{" "}
+                {farm.crop}
+                {farm.variety ? ` (${farm.variety})` : ""} ·{" "}
+                {farm.district}, {farm.tehsil}
               </p>
             </section>
 
-            <ConsultationFlow farmId={selectedFarm.id} scanMode={scanMode} />
+            <ConsultationChat
+              key={farm.id}
+              consultation={consultation}
+              messages={messages}
+              scanMode={scanMode}
+            />
           </>
         ) : (
           <NoFarmSelected />
@@ -107,11 +153,6 @@ export default async function AssistantPage(
   );
 }
 
-/**
- * Renders the assistant body for a specific consultation (loaded from
- * Farm History). Shows the farm banner, a back link, and either the
- * interactive chat (active) or a read-only transcript (completed).
- */
 function AssistantContent({
   farm,
   consultation,
@@ -173,11 +214,6 @@ function AssistantContent({
   );
 }
 
-/**
- * Displays a completed consultation's messages in read-only mode.
- * No composer, no "new consultation" button — just the transcript
- * and a link back to the active Assistant.
- */
 function ReadOnlyConsultation({
   consultation,
   messages,
@@ -243,36 +279,6 @@ function ReadOnlyConsultation({
   );
 }
 
-/**
- * Loads the active consultation and its messages for the selected farm.
- * Keyed on the farm id so switching farms loads the other farm's
- * conversation.
- */
-async function ConsultationFlow({
-  farmId,
-  scanMode,
-}: {
-  farmId: string;
-  scanMode: boolean;
-}) {
-  const consultation = await getActiveConsultation(farmId);
-  const messages = consultation
-    ? await getConsultationMessages(consultation.id)
-    : [];
-
-  return (
-    <div className="mt-4">
-      <ConsultationChat
-        key={farmId}
-        consultation={consultation}
-        messages={messages}
-        scanMode={scanMode}
-      />
-    </div>
-  );
-}
-
-/** Blocks consultation start when no farm is selected. */
 function NoFarmSelected() {
   return (
     <section className="mt-6 rounded-xl border border-forest-floor/15 bg-wheat-cream-light px-6 py-12 text-center">
@@ -293,5 +299,19 @@ function NoFarmSelected() {
         Go to My Crops
       </Link>
     </section>
+  );
+}
+
+export default function AssistantPage() {
+  return (
+    <Suspense fallback={
+      <AppShell>
+        <div className="mx-auto w-full max-w-3xl">
+          <p className="text-sm text-forest-floor/60">Loading…</p>
+        </div>
+      </AppShell>
+    }>
+      <AssistantPageContent />
+    </Suspense>
   );
 }

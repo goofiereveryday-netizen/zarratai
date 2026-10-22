@@ -1,11 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import type { Farm } from "@/lib/farms";
 import type { FarmFormState } from "@/app/actions/farms";
-
-const initialState: FarmFormState = {};
 
 const inputClass =
   "w-full rounded-lg border border-forest-floor/20 bg-white px-4 py-3 text-base text-deep-moss placeholder-forest-floor/30 transition-colors focus:border-olive-branch focus:outline-none focus:ring-2 focus:ring-olive-branch/20";
@@ -13,9 +11,7 @@ const inputClass =
 const labelClass = "mb-1 block text-sm font-medium text-deep-moss";
 
 type FarmFormProps = {
-  /** Server action passed from the page (createFarm, or updateFarm bound to an id). */
   action: (state: FarmFormState, formData: FormData) => Promise<FarmFormState>;
-  /** Existing farm values when editing. */
   farm?: Farm;
   submitLabel: string;
 };
@@ -30,10 +26,21 @@ function FieldError({ message }: { message?: string }) {
 }
 
 export function FarmForm({ action, farm, submitLabel }: FarmFormProps) {
-  const [state, formAction, pending] = useActionState(action, initialState);
+  const [state, setState] = useState<FarmFormState>({});
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPending(true);
+    setState({});
+    const formData = new FormData(e.currentTarget);
+    const result = await action({}, formData);
+    setState(result);
+    setPending(false);
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="farm-name" className={labelClass}>
           Crop name
@@ -184,7 +191,6 @@ export function FarmForm({ action, farm, submitLabel }: FarmFormProps) {
         />
       </div>
 
-      {/* General error */}
       {state.error && (
         <div
           className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"

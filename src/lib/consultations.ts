@@ -1,15 +1,19 @@
-import { createClient } from "@/lib/supabase/server";
+import {
+  getLocalActiveConsultation,
+  getLocalConsultation,
+  getLocalConsultations,
+  getLocalMessages,
+} from "@/lib/offline/database";
+import { getOfflineUserId, isNetworkAvailable } from "@/lib/offline/identity";
+import { syncUserData } from "@/lib/offline/sync";
+
+export const ASSISTANT_REPLY_FAILED =
+  "Your message was saved, but the assistant could not reply right now. Please try again in a moment.";
 
 export type ConsultationStatus = "active" | "completed";
-
 export type MessageRole = "user" | "assistant" | "system";
-
 export type MessageInputType = "text" | "image" | "voice" | "multimodal";
 
-/**
- * A row of the public.consultations table.
- * RLS guarantees queries only ever return consultations owned by the signed-in user.
- */
 export type Consultation = {
   id: string;
   user_id: string;
@@ -22,7 +26,6 @@ export type Consultation = {
   updated_at: string | null;
 };
 
-/** A row of the public.messages table. */
 export type ConsultationMessage = {
   id: string;
   consultation_id: string;
@@ -33,19 +36,11 @@ export type ConsultationMessage = {
   created_at: string | null;
 };
 
-/** Maximum length of a consultation title derived from the first message. */
 const TITLE_MAX_LENGTH = 60;
 
-/**
- * Derives the consultation title from the first user message using
- * deterministic truncation only — no AI, no summarisation.
- */
 export function deriveConsultationTitle(content: string): string {
   const normalized = content.replace(/\s+/g, " ").trim();
-  if (normalized.length <= TITLE_MAX_LENGTH) {
-    return normalized;
-  }
-  // Truncate on code-point boundaries so multi-byte characters stay intact.
+  if (normalized.length <= TITLE_MAX_LENGTH) return normalized;
   const truncated = Array.from(normalized)
     .slice(0, TITLE_MAX_LENGTH - 1)
     .join("")
@@ -53,92 +48,76 @@ export function deriveConsultationTitle(content: string): string {
   return `${truncated}…`;
 }
 
-/**
- * Returns the most recent consultation with status "active" for the given
- * farm, or null when the user has no active consultation for it.
- */
-export async function getActiveConsultation(
-  farmId: string
-): Promise<Consultation | null> {
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("consultations")
-    .select("*")
-    .eq("farm_id", farmId)
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to load active consultation:", error.message);
-    return null;
+function refreshInBackground(userId: string): void {
+  if (isNetworkAvailable()) {
+    void syncUserData(userId).catch((error) => {
+      console.warn("Background consultation sync failed:", error);
+    });
   }
-
-  return (data as Consultation) ?? null;
 }
 
-/** Returns the messages of a consultation, oldest first. Empty list on error. */
+export async function getActiveConsultation(farmId: string): Promise<Consultation | null> {
+  const userId = await getOfflineUserId();
+  if (!userId) return null;
+
+  let consultation = await getLocalActiveConsultation(userId, farmId);
+  if (consultation) {
+    refreshInBackground(userId);
+    return consultation;
+  }
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    consultation = await getLocalActiveConsultation(userId, farmId);
+  }
+  return consultation;
+}
+
 export async function getConsultationMessages(
-  consultationId: string
+  consultationId: string,
 ): Promise<ConsultationMessage[]> {
-  const supabase = await createClient();
+  const userId = await getOfflineUserId();
+  if (!userId) return [];
 
-  const { data, error } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("consultation_id", consultationId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
-
-  if (error) {
-    console.error("Failed to load consultation messages:", error.message);
-    return [];
+  let messages = await getLocalMessages(userId, consultationId);
+  if (messages.length > 0) {
+    refreshInBackground(userId);
+    return messages;
   }
-
-  return (data ?? []) as ConsultationMessage[];
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    messages = await getLocalMessages(userId, consultationId);
+  }
+  return messages;
 }
 
-/**
- * Returns all consultations for the signed-in user, newest first.
- * RLS scopes the query so only the user's own rows are returned.
- */
 export async function getUserConsultations(): Promise<Consultation[]> {
-  const supabase = await createClient();
+  const userId = await getOfflineUserId();
+  if (!userId) return [];
 
-  const { data, error } = await supabase
-    .from("consultations")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("Failed to load user consultations:", error.message);
-    return [];
+  let consultations = await getLocalConsultations(userId);
+  if (consultations.length > 0) {
+    refreshInBackground(userId);
+    return consultations;
   }
-
-  return (data ?? []) as Consultation[];
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    consultations = await getLocalConsultations(userId);
+  }
+  return consultations;
 }
 
-/**
- * Returns a single consultation by id. RLS ensures the signed-in user
- * can only access their own consultations.
- */
-export async function getConsultationById(
-  id: string
-): Promise<Consultation | null> {
-  const supabase = await createClient();
+export async function getConsultationById(id: string): Promise<Consultation | null> {
+  const userId = await getOfflineUserId();
+  if (!userId) return null;
 
-  const { data, error } = await supabase
-    .from("consultations")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to load consultation:", error.message);
-    return null;
+  let consultation = await getLocalConsultation(userId, id);
+  if (consultation) {
+    refreshInBackground(userId);
+    return consultation;
   }
-
-  return (data as Consultation) ?? null;
+  if (isNetworkAvailable()) {
+    await syncUserData(userId);
+    consultation = await getLocalConsultation(userId, id);
+  }
+  return consultation;
 }
