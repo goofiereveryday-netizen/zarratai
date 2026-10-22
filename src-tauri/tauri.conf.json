@@ -8,6 +8,7 @@
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000"
   },
+  
   "app": {
     "windows": [
       {
@@ -34,3 +35,4 @@
     ]
   }
 }
+
