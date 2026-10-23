@@ -62,8 +62,15 @@ jobs:
 
       - name: Initialize Tauri Android project
         run: npx tauri android init
+        
       - name: Generate Tauri Icons
         run: npx tauri icon src-tauri/icon.png
+        
+      - name: Build Android APK
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: npx tauri android build --apk --debug
         
       - name: Build Android APK
         run: npx tauri android build --apk --debug
