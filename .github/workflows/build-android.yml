@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -61,21 +62,68 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 
       - name: Initialize Tauri Android project
-        run: npx tauri android init
+        run: npx tauri android init --ci
         
       - name: Generate Tauri Icons
         run: npx tauri icon src-tauri/icon.png
+
+      - name: Setup Android Signing Keystore
+        run: |
+          cd src-tauri/gen/android
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" > keystore.properties
+          echo "password=${{ secrets.ANDROID_KEY_PASSWORD }}" >> keystore.properties
+          base64 -d <<< "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" > $RUNNER_TEMP/keystore.jks
+          echo "storeFile=$RUNNER_TEMP/keystore.jks" >> keystore.properties
+
+      - name: Patch Gradle Build for Signing
+        run: |
+          python3 -c '
+          gradle_path = "src-tauri/gen/android/app/build.gradle.kts"
+          with open(gradle_path, "r") as f:
+              content = f.read()
+
+          imports = "import java.io.FileInputStream\nimport java.util.Properties\n"
+          if "import java.io.FileInputStream" not in content:
+              content = imports + content
+
+          signing_block = """
+          signingConfigs {
+              create("release") {
+                  val keystorePropertiesFile = rootProject.file("keystore.properties")
+                  val keystoreProperties = Properties()
+                  if (keystorePropertiesFile.exists()) {
+                      keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+                  }
+                  keyAlias = keystoreProperties["keyAlias"] as String
+                  keyPassword = keystoreProperties["password"] as String
+                  storeFile = file(keystoreProperties["storeFile"] as String)
+                  storePassword = keystoreProperties["password"] as String
+              }
+          }
+          """
+          
+          if "signingConfigs" not in content:
+              content = content.replace("buildTypes {", signing_block + "\n    buildTypes {")
+
+          content = content.replace(
+              '\n    buildTypes {\n        getByName("release") {',
+              '\n    buildTypes {\n        getByName("release") {\n            signingConfig = signingConfigs.getByName("release")'
+          )
+
+          with open(gradle_path, "w") as f:
+              f.write(content)
+          '
         
-      - name: Build Android APK
+      - name: Build Signed Android Release APK
         env:
           VITE_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-        run: npx tauri android build --apk --debug
+        run: npx tauri android build --apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: zarratai-android-apk
+          name: zarratai-signed-release-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14

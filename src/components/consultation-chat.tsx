@@ -24,6 +24,7 @@ import {
   sendMessage,
   startNewConsultation,
 } from "@/app/actions/consultations";
+import { createClient } from "@/lib/supabase/client";
 import { IMAGE_SCAN_DEFAULT_CONTENT } from "@/lib/consultation-constants";
 import type {
   Consultation,
@@ -591,25 +592,25 @@ export function ConsultationChat({
     ttsAbortRef.current = controller;
 
     try {
-      const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: rawText }),
-        signal: controller.signal,
+      const supabase = createClient();
+      const { data, error: fnError } = await supabase.functions.invoke("tts", {
+        body: { text: rawText },
       });
 
-      // Verify the response is actually audio before playing — a JSON
-      // error body (even one with an OK status) must never reach the
-      // <audio> element.
-      const contentType = response.headers.get("content-type") ?? "";
-      if (!response.ok || !contentType.startsWith("audio/")) {
+      if (fnError || !data) {
+        throw new Error("tts-unavailable");
+      }
+
+      // The Edge Function returns a Blob or ArrayBuffer
+      const blob = data instanceof Blob ? data : new Blob([data], { type: "audio/mpeg" });
+
+      // Verify the response is actually audio before playing
+      const contentType = blob.type ?? "";
+      if (!contentType.startsWith("audio/")) {
         throw new Error("tts-unavailable");
       }
 
       // Stopped while the request was in flight — discard the audio.
-      if (speakingMessageIdRef.current !== message.id) return;
-
-      const blob = await response.blob();
       if (speakingMessageIdRef.current !== message.id) return;
 
       // PLAYING — the Audio object and its object URL stay in refs
