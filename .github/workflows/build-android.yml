@@ -71,9 +71,6 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: npx tauri android build --apk --debug
-        
-      - name: Build Android APK
-        run: npx tauri android build --apk --debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
