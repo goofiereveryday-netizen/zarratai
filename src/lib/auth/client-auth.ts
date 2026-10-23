@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { createClient, getAuthRedirectUrl } from "@/lib/supabase/client";
 import { normalizePhone, syntheticEmail } from "@/lib/auth/phone";
 
 export type AuthFormState = {
@@ -48,7 +48,7 @@ export async function signup(
         phone_number: normalized,
         full_name: name,
       },
-      emailRedirectTo: window.location.origin,
+      emailRedirectTo: getAuthRedirectUrl(),
     },
   });
 
@@ -94,6 +94,31 @@ export async function login(
   });
 
   if (error) {
+    // Distinguish network/WebView errors from real credential errors so the
+    // farmer sees "check connection" instead of "wrong password".
+    const message = error.message.toLowerCase();
+    const looksLikeCredentialError =
+      message.includes("invalid login credentials") ||
+      message.includes("invalid email or password") ||
+      error.code === "invalid_credentials" ||
+      error.code === "email_not_confirmed";
+
+    const looksLikeNetworkError =
+      !looksLikeCredentialError &&
+      (message.includes("failed to fetch") ||
+        message.includes("networkerror") ||
+        message.includes("invalid path") ||
+        message.includes("loading aborted") ||
+        message.includes("err_internet") ||
+        message.includes("err_connection") ||
+        message.includes("cors"));
+
+    if (looksLikeNetworkError) {
+      return {
+        error:
+          "Cannot reach the server. Please check your internet connection and try again.",
+      };
+    }
     return { error: "Invalid mobile number or password." };
   }
 
