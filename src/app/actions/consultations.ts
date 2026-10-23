@@ -12,6 +12,11 @@ import { IMAGE_SCAN_DEFAULT_CONTENT } from "@/lib/consultation-constants";
 import { getOfflineUserId, isNetworkAvailable } from "@/lib/offline/identity";
 import { saveLocalRecord } from "@/lib/offline/database";
 import { syncUserData } from "@/lib/offline/sync";
+import {
+  FunctionsFetchError,
+  FunctionsHttpError,
+  FunctionsRelayError,
+} from "@supabase/supabase-js";
 
 const MAX_MESSAGE_LENGTH = 4000;
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -134,6 +139,17 @@ export async function sendMessage(
   const history = await getConsultationMessages(consultation.id);
   let replyText: string | null = null;
   const supabase = createClient();
+
+  // Explicitly sync the auth token to the FunctionsClient. In the Tauri
+  // WebView the onAuthStateChange listener may not fire for sessions restored
+  // from localStorage, leaving the functions sub-client without an
+  // Authorization header even though getSession() reads a valid token.
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (accessToken) {
+    supabase.functions.setAuth(accessToken);
+  }
+
   try {
     const { data: replyData, error: replyError } = await supabase.functions.invoke(
       "assistant-reply",
@@ -147,7 +163,23 @@ export async function sendMessage(
       },
     );
     if (replyError) {
-      console.error("Assistant reply edge function error:", replyError.message);
+      if (replyError instanceof FunctionsHttpError) {
+        const status = replyError.context?.status;
+        const errBody = await replyError.context?.json?.().catch(() => null);
+        console.error(
+          `Assistant Edge Function returned HTTP ${status}:`,
+          errBody ?? replyError.message,
+        );
+      } else if (replyError instanceof FunctionsRelayError) {
+        console.error("Assistant Edge Function relay error:", replyError.message);
+      } else if (replyError instanceof FunctionsFetchError) {
+        console.error(
+          "Assistant Edge Function network error (check CSP/connect-src):",
+          replyError.message,
+        );
+      } else {
+        console.error("Assistant Edge Function error:", replyError.message);
+      }
     } else if (replyData && typeof replyData === "object" && "text" in replyData) {
       replyText = (replyData as { text: string }).text;
     } else if (replyData && typeof replyData === "object" && "error" in replyData) {

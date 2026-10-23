@@ -593,6 +593,14 @@ export function ConsultationChat({
 
     try {
       const supabase = createClient();
+      // Explicitly sync the auth token to the FunctionsClient for the Tauri
+      // WebView (same reason as in sendMessage — the auth listener may not
+      // have fired for a session restored from localStorage).
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (accessToken) {
+        supabase.functions.setAuth(accessToken);
+      }
       const { data, error: fnError } = await supabase.functions.invoke("tts", {
         body: { text: rawText },
       });
