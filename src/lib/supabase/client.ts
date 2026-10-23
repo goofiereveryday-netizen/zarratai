@@ -1,11 +1,11 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { createBrowserClient } from "@supabase/ssr";
 import {
   getTauriAuthStorage,
   isTauriRuntime,
   TAURI_AUTH_STORAGE_KEY,
 } from "@/lib/supabase/tauri-auth";
 
+let browserClient: ReturnType<typeof createSupabaseClient> | null = null;
 let tauriClient: ReturnType<typeof createSupabaseClient> | null = null;
 
 export function createClient() {
@@ -27,11 +27,22 @@ export function createClient() {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: false,
+          flowType: "pkce",
         },
       });
     }
     return tauriClient;
   }
 
-  return createBrowserClient(url, publishableKey, { isSingleton: true });
+  if (!browserClient) {
+    browserClient = createSupabaseClient(url, publishableKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        flowType: "pkce",
+      },
+    });
+  }
+  return browserClient;
 }

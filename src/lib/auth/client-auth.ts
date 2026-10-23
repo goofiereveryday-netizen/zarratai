@@ -48,6 +48,7 @@ export async function signup(
         phone_number: normalized,
         full_name: name,
       },
+      emailRedirectTo: window.location.origin,
     },
   });
 
