@@ -77,7 +77,7 @@ jobs:
 
       - name: Patch Gradle Build for Signing
         run: |
-          python3 -c '
+          python3 - << 'EOF'
           gradle_path = "src-tauri/gen/android/app/build.gradle.kts"
           with open(gradle_path, "r") as f:
               content = f.read()
@@ -106,13 +106,14 @@ jobs:
               content = content.replace("buildTypes {", signing_block + "\n    buildTypes {")
 
           content = content.replace(
-              '\n    buildTypes {\n        getByName("release") {',
-              '\n    buildTypes {\n        getByName("release") {\n            signingConfig = signingConfigs.getByName("release")'
+              'getByName("release") {',
+              'getByName("release") {\n            signingConfig = signingConfigs.getByName("release")'
           )
 
           with open(gradle_path, "w") as f:
               f.write(content)
-          '
+          print("Successfully patched build.gradle.kts for release signing.")
+          EOF
         
       - name: Build Signed Android Release APK
         env:
