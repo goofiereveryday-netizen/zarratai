@@ -140,10 +140,10 @@ export async function sendMessage(
   let replyText: string | null = null;
   const supabase = createClient();
 
-  // Explicitly sync the auth token to the FunctionsClient. In the Tauri
-  // WebView the onAuthStateChange listener may not fire for sessions restored
-  // from localStorage, leaving the functions sub-client without an
-  // Authorization header even though getSession() reads a valid token.
+  // Read the session token and pass Authorization explicitly on the invoke
+  // call. setAuth() alone can leave the FunctionsClient header-less in the
+  // Tauri WebView (the SDK's auth listener may not fire for sessions
+  // restored from localStorage), which the Edge Function sees as a 401.
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
   if (accessToken) {
@@ -160,37 +160,55 @@ export async function sendMessage(
             .map((item) => ({ ...item, image_url: null })),
           ...(image ? { image: { mimeType: image.mimeType, base64: image.base64 } } : {}),
         },
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : undefined,
       },
     );
     if (replyError) {
       if (replyError instanceof FunctionsHttpError) {
         const status = replyError.context?.status;
-        const errBody = await replyError.context?.json?.().catch(() => null);
+        let bodyText = "";
+        try {
+          bodyText = await replyError.context.text();
+        } catch {
+          // Response body already consumed or unreadable.
+        }
         console.error(
-          `Assistant Edge Function returned HTTP ${status}:`,
-          errBody ?? replyError.message,
+          `[assistant-reply] FunctionsHttpError status=${status} body=${
+            bodyText.slice(0, 500) || replyError.message
+          }`,
         );
-      } else if (replyError instanceof FunctionsRelayError) {
-        console.error("Assistant Edge Function relay error:", replyError.message);
       } else if (replyError instanceof FunctionsFetchError) {
         console.error(
-          "Assistant Edge Function network error (check CSP/connect-src):",
+          "[assistant-reply] FunctionsFetchError (network/CSP blocked — check connect-src for https://*.supabase.co):",
+          replyError.message,
+        );
+      } else if (replyError instanceof FunctionsRelayError) {
+        console.error(
+          "[assistant-reply] FunctionsRelayError (function not deployed or relay issue):",
           replyError.message,
         );
       } else {
-        console.error("Assistant Edge Function error:", replyError.message);
+        console.error("[assistant-reply] Functions error:", replyError.message);
       }
     } else if (replyData && typeof replyData === "object" && "text" in replyData) {
       replyText = (replyData as { text: string }).text;
     } else if (replyData && typeof replyData === "object" && "error" in replyData) {
+      // HTTP 200 carrying an error payload (e.g. GEMINI_API_KEY secret missing).
       console.error(
-        "Assistant reply edge function returned error:",
+        "[assistant-reply] HTTP 200 with error payload:",
         (replyData as { error: string }).error,
+      );
+    } else {
+      console.error(
+        "[assistant-reply] Unexpected response payload:",
+        JSON.stringify(replyData)?.slice(0, 500) ?? String(replyData),
       );
     }
   } catch (error) {
     console.error(
-      "Failed to call assistant-reply edge function:",
+      "[assistant-reply] Unexpected invoke failure:",
       error instanceof Error ? error.message : error,
     );
   }
